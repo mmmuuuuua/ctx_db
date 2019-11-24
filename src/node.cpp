@@ -146,6 +146,7 @@ void RaftNode::do_apply(std::lock_guard<std::mutex> & guard, bool from_snapshot)
         if(res != NUFT_OK){
             debug_node("Apply fail at %lld\n", i);
         }else{
+            map_[(int)(i)].second.notify_one();
             last_applied = i;
         }
         delete applymsg;

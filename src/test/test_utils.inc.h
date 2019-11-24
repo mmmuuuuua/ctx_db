@@ -27,6 +27,7 @@
 #include <unordered_set>
 #include <future>
 #include <tuple>
+#include "../kv_client.h"
 
 #if defined(_HIDE_TEST_DEBUG)
 #define debug_test(...)

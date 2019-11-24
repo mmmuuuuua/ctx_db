@@ -122,28 +122,17 @@ Status RaftMessagesServiceImpl::HandleClient(ServerContext* context,
         const raft_messages::HandleClientRequest* request,
         raft_messages::HandleClientResponse* response) 
 {
-    //raft_messages::HandleClientRequest & request = *request;
-    //raft_messages::HandleClientResponse & response_ = *response;
-    if(request->request_type()=="GET")
-    {
-        
+    #if !defined(_HIDE_HEARTBEAT_NOTICE) && !defined(_HIDE_GRPC_NOTICE)
+    debug("GRPC: Receive HandleClient from Peer %s\n", context->peer().c_str());
+    #endif
+    if(!raft_node){
+        return Status::OK;
     }
-    if(request->request_type()=="SET")
-    {
-        //std::condition_variable cv;
-        std::string key = request->key();
-        std::string value = request->value();
-        raft_node->do_log(key+"="+value);
-        //{
-          //  std::unique_lock<std::mutex> lk(mut);
-            //(raft_node->cv).wait_for(lk, std::chrono::duration<int, std::milli> {timeout});///等待一段时间，如果没有反应，也要回复客户端
-            //if(raft_node->)
-        //}
-
-
-    }
-    
-
+    int response0 = raft_node->on_handle_client_request(response,*request);
+    if(response0 == 0)
+        return Status::OK;
+    else
+        return Status(grpc::StatusCode::UNAVAILABLE,"Peer is not ready for this request.");
 }
 
 

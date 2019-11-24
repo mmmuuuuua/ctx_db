@@ -49,6 +49,20 @@ using grpc::CompletionQueue;
 // using raft_messages::RequestVoteResponse;
 // using raft_messages::RaftMessages
 
+
+/*
+enum GET_FLAG{
+    GET_SUCCESS,
+    GET_FAIL,
+};
+
+enum SET_FLAG{
+    SET_AGAIN=0,
+    SET_FAIL=1,
+    SET_SUCCESS=2,
+};
+*/
+
 #define MONITOR_DELAY_THRES 150
 inline bool monitor_delayed(uint64_t send_time){
     uint64_t delta = get_current_ms() - send_time;
@@ -59,31 +73,6 @@ inline bool monitor_delayed(uint64_t send_time){
     return false;
 }
 
-struct RaftMessagesServiceImpl : public raft_messages::RaftMessages::Service {
-    // `RaftMessagesServiceImpl` defines what we do when receiving a RPC call.
-    struct RaftNode * raft_node = nullptr;
-
-    RaftMessagesServiceImpl(struct RaftNode * _raft_node) : raft_node(_raft_node) {
-
-    }
-    ~RaftMessagesServiceImpl(){
-        raft_node = nullptr;
-    }
-
-    Status RequestVote(ServerContext* context, const raft_messages::RequestVoteRequest* request,
-                       raft_messages::RequestVoteResponse* response) override;
-
-    Status AppendEntries(ServerContext* context, const raft_messages::AppendEntriesRequest* request,
-                         raft_messages::AppendEntriesResponse* response) override;
-
-    Status InstallSnapshot(ServerContext* context, const raft_messages::InstallSnapshotRequest* request,
-                            raft_messages::InstallSnapshotResponse* response) override;
-    
-    ////////ctx
-    Status HandleClient(ServerContext* context,const raft_messages::HandleClientRequest* request,
-                        raft_messages::HandleClientResponse* respanse) override;
-};
-
 
 #if defined(USE_GRPC_SYNC)
 struct RaftMessagesClientSync : std::enable_shared_from_this<RaftMessagesClientSync>{
@@ -93,9 +82,9 @@ struct RaftMessagesClientSync : std::enable_shared_from_this<RaftMessagesClientS
     using AppendEntriesRequest = ::raft_messages::AppendEntriesRequest;
     using AppendEntriesResponse = ::raft_messages::AppendEntriesResponse;
     using InstallSnapshotRequest = ::raft_messages::InstallSnapshotRequest;
-    using InstallSnapshotResponse = ::raft_messages::InstallSnapshotResponse;
-    using HandleClientRequest = ::raft_messages::HandleClientRequest;
-    using HandleClientResponse = ::raft_messages::HandleClientResponse;
+    using InstallSnapshotResponse = ::raft_messages::InstallSnapshotResponse; 
+    //using HandleClientRequest = ::raft_messages::HandleClientRequest;
+    //using HandleClientResponse = ::raft_messages::HandleClientResponse;
 
     // Back reference to raft node.
     struct RaftNode * raft_node = nullptr;
@@ -127,8 +116,8 @@ struct RaftMessagesStreamClientSync : std::enable_shared_from_this<RaftMessagesS
     using AppendEntriesResponse = ::raft_messages::AppendEntriesResponse;
     using InstallSnapshotRequest = ::raft_messages::InstallSnapshotRequest;
     using InstallSnapshotResponse = ::raft_messages::InstallSnapshotResponse;
-    using HandleClientRequest = ::raft_messages::HandleClientRequest;
-    using HandleClientResponse = ::raft_messages::HandleClientResponse;
+    //using HandleClientRequest = ::raft_messages::HandleClientRequest;
+    //using HandleClientResponse = ::raft_messages::HandleClientResponse;
     // Back reference to raft node.
     struct RaftNode * raft_node = nullptr;
     // std::shared_ptr<Nuke::ThreadExecutor> task_queue;
@@ -180,8 +169,8 @@ struct RaftMessagesClientAsync : std::enable_shared_from_this<RaftMessagesClient
     using AppendEntriesResponse = ::raft_messages::AppendEntriesResponse;
     using InstallSnapshotRequest = ::raft_messages::InstallSnapshotRequest;
     using InstallSnapshotResponse = ::raft_messages::InstallSnapshotResponse;
-    using HandleClientRequest = ::raft_messages::HandleClientRequest;
-    using HandleClientResponse = ::raft_messages::HandleClientResponse;
+    //using HandleClientRequest = ::raft_messages::HandleClientRequest;
+    //using HandleClientResponse = ::raft_messages::HandleClientResponse;
 
     // Back reference to raft node.
     struct RaftNode * raft_node;
@@ -221,6 +210,32 @@ private:
 };
 #endif
 
+struct RaftMessagesServiceImpl : public raft_messages::RaftMessages::Service {
+    // `RaftMessagesServiceImpl` defines what we do when receiving a RPC call.
+    struct RaftNode * raft_node = nullptr;
+
+    RaftMessagesServiceImpl(struct RaftNode * _raft_node) : raft_node(_raft_node) {
+
+    }
+    ~RaftMessagesServiceImpl(){
+        raft_node = nullptr;
+    }
+
+    Status RequestVote(ServerContext* context, const raft_messages::RequestVoteRequest* request,
+                       raft_messages::RequestVoteResponse* response) override;
+
+    Status AppendEntries(ServerContext* context, const raft_messages::AppendEntriesRequest* request,
+                         raft_messages::AppendEntriesResponse* response) override;
+
+    Status InstallSnapshot(ServerContext* context, const raft_messages::InstallSnapshotRequest* request,
+                            raft_messages::InstallSnapshotResponse* response) override;
+    
+    ////////ctx
+    Status HandleClient(ServerContext* context,const raft_messages::HandleClientRequest* request,
+                        raft_messages::HandleClientResponse* respanse) override;
+};
+
+
 struct RaftServerContext{
     RaftMessagesServiceImpl * service;
     std::unique_ptr<Server> server;
@@ -241,8 +256,8 @@ struct RaftMessagesStreamServiceImpl : public raft_messages::RaftStreamMessages:
     using AppendEntriesResponse = ::raft_messages::AppendEntriesResponse;
     using InstallSnapshotRequest = ::raft_messages::InstallSnapshotRequest;
     using InstallSnapshotResponse = ::raft_messages::InstallSnapshotResponse;
-    using HandleClientRequest = ::raft_messages::HandleClientRequest;
-    using HandleClientResponse = ::raft_messages::HandleClientResponse;
+    //using HandleClientRequest = ::raft_messages::HandleClientRequest;
+    //using HandleClientResponse = ::raft_messages::HandleClientResponse;
 
     struct RaftNode * raft_node = nullptr;
     std::atomic<bool> stop;

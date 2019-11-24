@@ -33,6 +33,7 @@
 #include "grpc_utils.h"
 #include "settings.h"
 #include <tuple>
+#include <utility>
 
 #include "kv_database.h"
 
@@ -142,6 +143,19 @@ struct ApplyMessage{
 };
 
 struct RaftNode {
+
+    ///ctx
+    enum GET_FLAG{
+    GET_SUCCESS=0,
+    GET_FAIL=1,
+    };
+
+    enum SET_FLAG{
+        SET_AGAIN=0,
+        SET_FAIL=1,
+        SET_SUCCESS=2,
+    };
+
     enum NodeState {
         Follower = 0,
         Candidate = 1,
@@ -557,6 +571,8 @@ struct RaftNode {
     int on_vote_request(raft_messages::RequestVoteResponse * response_ptr, const raft_messages::RequestVoteRequest & request);
     void on_vote_response(const raft_messages::RequestVoteResponse & response);
 
+    int on_handle_client_request(raft_messages::HandleClientResponse * response_ptr, const raft_messages::HandleClientRequest& request);
+
 
     template <typename R>
     bool handle_request_routine(std::lock_guard<std::mutex> & guard, const R & request){
@@ -697,6 +713,11 @@ struct RaftNode {
     //////
     kv_database * db;
     std::string dbDir;
+
+    int sequence_;//解决幂等性的序号
+    //std::mutex mut_;
+    //std::condition_variable cond_;//当需要复制的条目commit或者超时的时候用于唤醒grpc服务端的调用
+    std::map<int,std::pair<std::mutex,std::condition_variable>> map_;
 
     RaftNode(const std::string & addr);
     RaftNode(const RaftNode &) = delete;

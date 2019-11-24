@@ -177,7 +177,7 @@ int RaftNode::on_append_entries_request(raft_messages::AppendEntriesResponse * r
                     response.set_last_log_term(gl(i).term());
                     // NOTICE We need to IMMEDIATELY remove! See seq.concurrent.log !!!
                     logs.erase(logs.begin() + i + 1 - get_base_index(), logs.end());
-		    break;
+		            break; 
                 }
                 // Otherwise continue loop
             }
@@ -199,7 +199,7 @@ NO_CONFLICT:
         // NOTICE According to https://thesquareplanet.com/blog/raft-qa/, we should erase fewer log entries when the new entry is prefix of the older entry.
         // This is related to re-ordered RPC topic. See `TEST(Snapshot, Lost)` for more information.
         #ifdef USE_MORE_REMOVE
-        if(request.prev_log_index() + 1 <= last_log_index()){
+        if(request.prev_log_index() + 1 <= last_log_index()){  ///考虑写成request.prev_log_index()<last_log_index()更直观一些
             // If request's entries overlaps my entries.
             // There is a error where `on_update_configuration_joint` is called IMMEDIATELY before Erase, 
             // And this is solved and is because I mixed up some `NUFT_CMD_*`s in some early version.
@@ -476,10 +476,12 @@ NORMAL_TEST_COMMIT:
         // the servers..."
         if (enough_votes(commit_vote)) {
             // if(!heartbeat) 
-                debug_node("Advance commit_index from %lld to %lld with vote %d. match_index {%s}.\n", commit_index, new_commit, commit_vote, mstr.c_str());
+            debug_node("Advance commit_index from %lld to %lld with vote %d. match_index {%s}.\n", commit_index, new_commit, commit_vote, mstr.c_str());
+
             commit_index = new_commit;
             // "When the entry has been safely replicated, the leader applies the entry to its state machine 
             // and returns the result of that execution to the client."
+
             do_apply(guard);
         }else{
             //if(!heartbeat) 

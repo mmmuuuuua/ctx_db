@@ -20,6 +20,8 @@
 
 #include "test_utils.inc.h"
 
+
+/*
 TEST(Network, RedirectToLeader){
     int n = 5;
     ASSERT_GT(n, 2);
@@ -695,37 +697,7 @@ TEST(Persist, FrequentCrash){
 }
 
 
-TEST(KvDatabase, client){
-    MakeRaftNodes(5);
-    WaitElection(nodes[0]);
-    using namespace std::chrono_literals;
-    std::this_thread::sleep_for(1s);
-    ASSERT_EQ(CountLeader(), 1);
-    RaftNode * leader = PickNode({RN::Leader});
-    ASSERT_TRUE(leader != nullptr);
 
-    for(auto nd:nodes)
-    {
-        KvDatabaseApplied(nd, [](NuftCallbackArg * arg, ApplyMessage * applymsg, std::lock_guard<std::mutex> & guard)
-        {
-            RaftNode * nd = arg->node;
-            std::vector<std::string> l = Nuke::split(applymsg->data, "=");
-            //std::lock_guard<std::mutex> guard((monitor_mut));
-            nd->db->set(l[0],l[1]);
-        });
-    }
-
-    
-    int ln = 5;
-    for(int i = 0; i < ln; i++){
-        std::string logstr = std::string("log")+std::to_string(i)+std::string("=")+std::string("value")+std::to_string(i);
-        leader->do_log(logstr);
-        std::this_thread::sleep_for(1s);
-        int support = CheckKvCommit(i, std::string("log")+std::to_string(i),std::string("value")+std::to_string(i));
-        ASSERT_GE(support, MajorityCount(5));
-    }
-    FreeRaftNodes();
-}
 
 
 TEST(KvDatabase, Normal){
@@ -940,6 +912,47 @@ TEST(Concurrent, Basic){
 
 TEST(Concurrent, LostAndCrash){
     GenericTest(200, 5, -1, true, true, 3);
+}
+
+*/
+
+
+TEST(KvDatabase, client){
+    MakeRaftNodes(5);
+    WaitElection(nodes[0]);
+    using namespace std::chrono_literals;
+    std::this_thread::sleep_for(1s);
+    ASSERT_EQ(CountLeader(), 1);
+    RaftNode * leader = PickNode({RN::Leader});
+    ASSERT_TRUE(leader != nullptr);
+
+    for(auto nd:nodes)
+    {
+        KvDatabaseApplied(nd, [](NuftCallbackArg * arg, ApplyMessage * applymsg, std::lock_guard<std::mutex> & guard)
+        {
+            RaftNode * nd = arg->node;
+            std::vector<std::string> l = Nuke::split(applymsg->data, "=");
+            //std::lock_guard<std::mutex> guard((monitor_mut));
+            nd->db->set(l[0],l[1]);
+        });
+    }
+
+    KvClient client;
+    for(int i=0;i<nodes.size();i++)
+        client.AddKvNode(nodes[i]->name);
+    client.SetCurrentAddr(leader->name);
+
+    int ln = 5;
+    for(int i=0;i<ln;i++)
+    {
+        std::string logstr = std::string("log")+std::to_string(i)+std::string("=")+std::string("value")+std::to_string(i);
+        client.Set(std::string("log")+std::to_string(i),std::string("value")+std::to_string(i));
+        std::this_thread::sleep_for(1s);
+        int support = CheckKvCommit(i, std::string("log")+std::to_string(i),std::string("value")+std::to_string(i));
+        ASSERT_GE(support, MajorityCount(5));
+    }
+
+    FreeRaftNodes();
 }
 
 int main(int argc, char ** argv){

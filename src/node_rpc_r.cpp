@@ -23,6 +23,7 @@
 void RaftNode::do_election(std::lock_guard<std::mutex> & guard) {
     
     switch_to(guard, NodeState::Candidate);
+    
     current_term++;
     // NOTICE Now compute `vote_for` in `test_election` by counting `vote_for_me`
     // vote_got = 1; // Vote for myself

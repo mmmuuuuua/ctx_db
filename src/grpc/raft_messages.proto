@@ -6,12 +6,15 @@ package raft_messages;
 message HandleClientRequest{
     required string request_type=1;
     required string key=2;
-    required string value=3;
+    optional string value=3;
+    //required int64 sequence=4;
 }
 
 message HandleClientResponse{
-    required string cmd=1;
-    required bool success=2;;
+    //required string cmd=1;
+    required int32 flag=1;
+    optional string leader_name=2;  ///若put操作请求的Node不是leader，则返回leader_name
+    optional string value=3;  ///get操作返回的value
 }
 
 message LogEntry {
@@ -116,7 +119,7 @@ service RaftStreamMessages {
     rpc RequestVote (stream RequestVoteRequest) returns (stream RequestVoteResponse) {}
     rpc AppendEntries (stream AppendEntriesRequest) returns (stream AppendEntriesResponse) {}
     rpc InstallSnapshot (stream InstallSnapshotRequest) returns (stream InstallSnapshotResponse) {}
-    //rpc HandleClient (stream HandleClientRequest) returns (stream HandleClientResponse) {}
+    rpc HandleClient (stream HandleClientRequest) returns (stream HandleClientResponse) {}
 }
 
 
