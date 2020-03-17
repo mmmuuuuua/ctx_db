@@ -1,22 +1,4 @@
-/*************************************************************************
-*  Nuft -- A C++17 Raft consensus algorithm library
-*  Copyright (C) 2018  Calvin Neo 
-*  Email: calvinneo@calvinneo.com;calvinneo1995@gmail.com
-*  Github: https://github.com/CalvinNeo/Nuft/
-*  
-*  This program is free software: you can redistribute it and/or modify
-*  it under the terms of the GNU General Public License as published by
-*  the Free Software Foundation, either version 3 of the License, or
-*  (at your option) any later version.
-*  
-*  This program is distributed in the hope that it will be useful,
-*  but WITHOUT ANY WARRANTY; without even the implied warranty of
-*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-*  GNU General Public License for more details.
-*  
-*  You should have received a copy of the GNU General Public License
-*  along with this program.  If not, see <https://www.gnu.org/licenses/>.
-**************************************************************************/
+#pragma once
 
 #include <gtest/gtest.h>
 #include "../node.h"
@@ -30,6 +12,8 @@
 #include "../kv_client.h"
 #include "../kv_server.h"
 
+//#include "../shardmaster_config.h"
+
 #if defined(_HIDE_TEST_DEBUG)
 #define debug_test(...)
 #else
@@ -40,9 +24,24 @@
 
 uint16_t new_port_base = 7200;
 uint16_t port_base = 7100;
-std::vector<RaftNode *> nodes;
+uint16_t shardmaster_raftnode_port_base = 6100;
+uint16_t shardmaster_port_base = 6200;
+uint16_t shardkv_raftnode_port_base = 6300;
+uint16_t shardkv_port_base = 6400;
+uint16_t shardkv_inner_port_base = 6500;
 
+std::vector<RaftNode *> nodes;
 std::vector<KvServer*> servers;
+std::vector<ShardmasterServer*> shardmasterServers;
+
+std::vector<ShardkvServer*> shardkvServers;
+
+struct Group{
+	int gid;
+	std::vector<ShardkvServer*> shardkvServers;
+};
+
+std::vector<Group*> groups;
 
 struct LogMon{
     std::string data;
@@ -118,7 +117,6 @@ void FreeKvServers()
     std::sort(servers.begin(), servers.end(), [](auto a, auto b){
         return a->node->state < b->node->state;
     });
-    debug_test("=== Clearing %d\n", servers.size());
     using namespace std::chrono_literals;
     for(auto nd: servers){
         debug_test("=== Deleting %s\n", nd->node->name.c_str());
@@ -126,16 +124,15 @@ void FreeKvServers()
         nd = nullptr;
     }
     servers.clear();
-    nodes.clear();
     std::this_thread::sleep_for(1s);
 }
 
 void MakeKvServers(int n)
 {
-    FreeKvServers();
+    FreeRaftNodes();
     servers.resize(n);
     nodes.resize(n);
-	
+
     for(int i=0;i<n;i++)
     {
         servers[i] = new KvServer(std::string("127.0.0.1:") + std::to_string(port_base + i));
@@ -154,6 +151,141 @@ void MakeKvServers(int n)
     for(auto it:servers)
         it->node->run();
 }
+
+void FreeShardmasterServers()
+{
+    std::sort(shardmasterServers.begin(),shardmasterServers.end(),[](auto a,auto b){
+        return a->node->state<b->node->state;
+    });
+    using namespace std::chrono_literals;
+    for(auto nd:shardmasterServers){
+        debug_test("=== Deleting %s\n", nd->node->name.c_str());
+        delete nd;
+        nd = nullptr;
+    }
+    shardmasterServers.clear();
+    std::this_thread::sleep_for(1s);
+}
+
+
+void MakeShardmasterServers(int n)
+{
+    FreeShardmasterServers();
+    shardmasterServers.resize(n);
+    nodes.resize(n);
+
+    for(int i=0;i<n;i++)
+    {
+        shardmasterServers[i] = new ShardmasterServer(std::string("127.0.0.1:") + std::to_string(shardmaster_raftnode_port_base + i),
+													  std::string("127.0.0.1:") + std::to_string(shardmaster_port_base + i));
+        nodes[i] = shardmasterServers[i]->node;
+    }
+    for(int i=0;i<n;i++)
+    {
+        for(int j=0;j<n;j++)
+        {
+            if(i==j)
+                continue;
+            shardmasterServers[i]->node->add_peer(shardmasterServers[j]->node->name);
+        }
+    }
+    for(auto it:shardmasterServers)
+        it->node->run();
+}
+
+
+//MakeShardkvServers和FreeShardkvServers暂时闲置，无用
+/*
+void FreeShardkvServers()
+{
+    std::sort(shardkvServers.begin(),shardkvServers.end(),[](auto a,auto b){
+        return a->node->state<b->node->state;
+    });
+    using namespace std::chrono_literals;
+    for(auto nd:shardkvServers){
+        debug_test("=== Deleting %s\n", nd->node->name.c_str());
+        delete nd;
+        nd = nullptr;
+    }
+    shardkvServers.clear();
+    std::this_thread::sleep_for(1s);
+}
+
+void MakeShardkvServers(int gn,int n)
+{
+    FreeShardkvServers();
+    shardkvServers.resize(n);
+
+    for(int i=0;i<n;i++)
+    {
+        shardkvServers[i] = new ShardkvServer(std::string("127.0.0.1:") + std::to_string(port_base + i));
+        nodes[i] = shardkvServers[i]->node;
+    }
+    for(int i=0;i<n;i++)
+    {
+        for(int j=0;j<n;j++)
+        {
+            if(i==j)
+                continue;
+            shardkvServers[i]->node->add_peer(shardkvServers[j]->node->name);
+        }
+    }
+    for(auto it:shardkvServers)
+        it->node->run();
+}
+*/
+void FreeGroups()
+{
+	
+}
+
+void MakeGroups(int gn,int n)
+{
+	groups.resize(gn);
+	for(int i=0;i<gn;i++)
+	{
+		groups[i] = new Group();
+		groups[i]->gid = 100+i;
+		(groups[i]->shardkvServers).resize(n);
+		for(int j=0;j<n;j++)
+		{
+			groups[i]->shardkvServers[j] = new ShardkvServer(std::string("127.0.0.1:")+std::to_string(shardkv_raftnode_port_base+groups[i]->gid*10+j),
+															std::string("127.0.0.1:")+std::to_string(shardkv_port_base+groups[i]->gid*10+j),
+															std::string("127.0.0.1:")+std::to_string(shardkv_inner_port_base+groups[i]->gid*10+j),
+															groups[i]->gid);
+		}	
+		for(int j=0;j<n;j++)
+		{
+			for(int k=0;k<n;k++)
+			{
+				if(j==k)
+					continue;
+				groups[i]->shardkvServers[j]->node->add_peer(groups[i]->shardkvServers[k]->node->name);
+			}
+		}
+		for(auto it:groups[i]->shardkvServers)
+			it->node->run();
+	}
+	
+	
+	for(int i=0;i<gn;i++)
+	{
+		for(int j=0;j<n;j++)
+		{
+			for(int k=0;k<gn;k++)
+			{
+				for(int g=0;g<n;g++)
+				{
+					if(i==k)
+						continue;
+					//以std::string型的地址作为key寻找对应的ShardkvInnerRpcClient
+					groups[i]->shardkvServers[j]->AddShardkvInnerRpcClients(groups[k]->shardkvServers[g]->innerRpcAddr);
+				}
+			}
+		}
+	}
+}
+
 
 // RaftNode * MakeNewRaftNode(uint16_t port, const std::vector<std::string> & app, const std::vector<std::string> & rem){
 RaftNode * AddRaftNode(uint16_t port){
@@ -198,6 +330,21 @@ RaftNode * PickNode(std::unordered_set<int> nt){
     return nullptr;
 }
 
+
+//从指定的group中寻找到一个state等于nt中state的node
+RaftNode * PickGroupNode(int groupIndex,std::unordered_set<int> nt){
+    // This function won't check if the are multiple Leader.
+	Group* group = groups[groupIndex];
+    for(auto server: group->shardkvServers)
+	{
+        if(nt.find(server->node->state) != nt.end() && !server->node->paused){
+            return server->node;
+        }
+    }
+    return nullptr;
+}
+
+
 int PickIndex(std::unordered_set<int> nt, int order = 0){
     // This function won't check if the are multiple Leader.
     for(int i = 0; i < nodes.size(); i++){
@@ -225,6 +372,7 @@ void DisableNode(RaftNode * victim, std::lock_guard<std::mutex> & guard){
         }
     }
 }
+
 void DisableNode(RaftNode * victim){
     std::lock_guard<std::mutex> guard((victim->mut));
     DisableNode(victim, guard);
@@ -241,6 +389,66 @@ void EnableNode(RaftNode * victim){
     std::lock_guard<std::mutex> guard((victim->mut));
     EnableNode(victim, guard);
 }
+
+////新增
+void DisableGroupNode(int groupIndex,int serverIndex, std::lock_guard<std::mutex> & guard)
+{
+	ShardkvServer* server= groups[groupIndex].shardkvServers[serverIndex]
+	server->node->stop(guard);
+	Group* group = groups[groupIndex];
+	for(int i=0;i<(group->shardkvServers).size();i++)
+	{
+		if(i!=serverIndex)
+			(group->shardkvServers)[i]->node->disable_receive(server->node->name);
+	}
+	server->tobe_paused = true;
+}
+void DisableGroupNode(int groupIndex,int serverIndex)
+{
+	ShardkvServer* server= groups[groupIndex].shardkvServers[serverIndex]
+	std::lock_guard<std::mutex> guard((server->shardkvServerMu));
+	DisableGroupNode(groupIndex,serverIndex,guard);
+}
+
+void DisableGroup(int groupIndex)
+{
+	Group* group = groups[groupIndex];
+	for(int i=0;i<(group->shardkvServers).size();i++)
+	{
+		DisableGroupNode(groupIndex,i);
+	}
+}
+
+
+void EnableGroupNode(int groupIndex,int serverIndex, std::lock_guard<std::mutex> & guard)
+{
+	ShardkvServer* server= groups[groupIndex].shardkvServers[serverIndex];
+	server->node->resume(guard);
+	Group* group = groups[groupIndex];
+	for(int i=0;i<(group->shardkvServers).size();i++)
+	{
+		if(i!=serverIndex)
+			(group->shardkvServers)[i]->node->enable_receive(server->node->name);
+	}
+	server->tobe_paused = false;
+}
+void EnableGroupNode(int groupIndex,int serverIndex)
+{
+	ShardkvServer* server= groups[groupIndex].shardkvServers[serverIndex]
+	std::lock_guard<std::mutex> guard((server->shardkvServerMu));
+	EnableGroupNode(groupIndex,serverIndex,guard);
+}
+
+void EnableGroup(int groupIndex)
+{
+	Group* group = groups[groupIndex];
+	for(int i=0;i<(group->shardkvServers).size();i++)
+	{
+		EnableGroupNode(groupIndex,i);
+	}
+}
+
+
 
 void DisableSend(RaftNode * victim, std::vector<int> nds){
     for(int i: nds){
@@ -426,7 +634,7 @@ int CheckKvCommit(IndexID index, const std::string & key,const std::string & val
         }
 
         std::string tmp_value;
-        bool flag = nd->kv_server->db->get(key,tmp_value);
+        bool flag = ((KvServer*)nd->server_)->db->get(key,tmp_value);
         if(flag==1&&tmp_value == value)
             support++;
     }

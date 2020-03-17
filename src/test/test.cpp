@@ -1,5 +1,7 @@
 #include "test_utils.inc.h"
 
+
+/*
 TEST(Network, RedirectToLeader){
     int n = 5;
     ASSERT_GT(n, 2);
@@ -23,7 +25,7 @@ OK:
 }
 
 TEST(Election, Basic){
-    int n = 5;
+    int n = 3;
     ASSERT_GT(n, 1);
     MakeRaftNodes(n);
     WaitElection(nodes[0]);
@@ -34,7 +36,6 @@ TEST(Election, Basic){
     ASSERT_EQ(leader_cnt, 1);
     FreeRaftNodes();
 }
-
 
 TEST(Election, Normal){
     int n = 10;
@@ -678,7 +679,7 @@ TEST(Persist, FrequentCrash){
 
 
 
-/*
+
 TEST(KvDatabase, Normal){
     MakeRaftNodes(5);
     WaitElection(nodes[0]);
@@ -709,9 +710,6 @@ TEST(KvDatabase, Normal){
     }
     FreeRaftNodes();
 }
-*/
-
-//GenericTest(200, 5, 30, true, false, 1);
 
 void GenericTest(int tot = 100, int n = 5, int snap_interval = -1, bool test_lost = false, bool test_crash = false, int clients = 1){
     ASSERT_GT(n, 2);
@@ -898,7 +896,7 @@ TEST(Concurrent, LostAndCrash){
 
 
 
-/*
+
 TEST(KvDatabase, client1){   ////第一个版本
     MakeRaftNodes(5);
     WaitElection(nodes[0]);
@@ -937,6 +935,7 @@ TEST(KvDatabase, client1){   ////第一个版本
     FreeRaftNodes();
 }
 
+
 TEST(KvDatabase, client2)  ///第二个版本
 {
     MakeKvServers(5);
@@ -947,8 +946,6 @@ TEST(KvDatabase, client2)  ///第二个版本
     RaftNode* leader = PickNode({RN::Leader});
     ASSERT_TRUE(leader!=nullptr);
 
-
-
     for(auto nd:nodes)
     {
         KvDatabaseApplied(nd, [](NuftCallbackArg * arg, ApplyMessage * applymsg, std::lock_guard<std::mutex> & guard)
@@ -956,7 +953,7 @@ TEST(KvDatabase, client2)  ///第二个版本
             RaftNode * nd = arg->node;
             std::vector<std::string> l = Nuke::split(applymsg->data, "=");
             //std::lock_guard<std::mutex> guard((monitor_mut));
-            nd->kv_server->db->set(l[0],l[1]);
+            (KvServer*)(nd->server_)->db->set(l[0],l[1]);
         });
     }
 
@@ -974,202 +971,327 @@ TEST(KvDatabase, client2)  ///第二个版本
         int support = CheckKvCommit(i, std::string("log")+std::to_string(i),std::string("value")+std::to_string(i));
         ASSERT_GE(support, MajorityCount(5));
     }
-
     FreeKvServers();
 }
 */
 
-/*
 
-TEST(KvDatabase, CommitFollowerLost)
+TEST(shardkv,staticshards) //gn = 3 ,n=3;
 {
-    int n = 3;
-    ASSERT_GT(n, 2);
-    MakeKvServers(n);
-    
+	MakeShardmasterServers(3);
+	WaitElection(shardmasterServers[0]->node);
+	using namespace std::chrono_literals;
+	std::this_thread::sleep_for(1s);
+	ASSERT_EQ(CountLeader(),1);
+    RaftNode* leader = PickNode({RN::Leader});
+    ASSERT_TRUE(leader!=nullptr);
+	
+	MakeGroups(3,3);
+	
+	ShardmasterClient shardmasterClient;
+	for(int i=0;i<shardmasterServers.size();i++)
+        shardmasterClient.AddShardmasterNode(shardmasterServers[i]->rpcAddr);
+    shardmasterClient.SetCurrentAddr(((ShardmasterServer*)(leader->server_))->rpcAddr);
+	
 
-    for(auto nd:nodes)
-    {
-        KvDatabaseApplied(nd, [](NuftCallbackArg * arg, ApplyMessage * applymsg, std::lock_guard<std::mutex> & guard)
-        {
-            RaftNode * nd = arg->node;
-            std::vector<std::string> l = Nuke::split(applymsg->data, "=");
-            //std::lock_guard<std::mutex> guard((monitor_mut));
-            nd->kv_server->db->set(l[0],l[1]);
-        });
-    }
-
-    print_state();
-    WaitElection(servers[0]->node);
-    using namespace std::chrono_literals;
-    std::this_thread::sleep_for(TimeEnsureSuccessfulElection());
-    RaftNode * leader = PickNode({RN::Leader});
-    ASSERT_TRUE(leader != nullptr);
-    TermID original_term = leader->current_term;
-
-    KvClient client;
-    for(int i=0;i<nodes.size();i++)
-        client.AddKvNode(nodes[i]->name);
-    client.SetCurrentAddr(leader->name);
-
-     // Disable 1 node
-    RaftNode * victim = PickNode({RN::Follower, RN::Candidate});
-    ASSERT_NE(victim, nullptr);
-    printf("GTEST: Disable 1\n");
-    DisableNode(victim);
-    print_state();
-
-    int ln = 4;
-    for(int i=0;i<ln;i++)
-    {
-        std::string logstr = std::string("log")+std::to_string(i)+std::string("=")+std::string("value")+std::to_string(i);
-        client.Set(std::string("log")+std::to_string(i),std::string("value")+std::to_string(i));
-        std::this_thread::sleep_for(1s);
-        int support = CheckKvCommit(i, std::string("log")+std::to_string(i),std::string("value")+std::to_string(i));
-        ASSERT_GE(support, MajorityCount(n));
-    }
-
-    // Disable 2 nodes
-    RaftNode * victim2 = PickNode({RN::Follower, RN::Candidate});
-    printf("GTEST: Now disable and mute victim2 %s.\n", victim2->name.c_str());
-    DisableReceive(victim2, {0, 1, 2});
-    DisableSend(victim2, {0, 1, 2});
-    // victim2 will keep electing but never succeed. 
-    print_state();
-    client.Set(std::string("dummyKey"), std::string("dummyValue"));
-    std::string str = std::string("dummyKey") + std::string("=") + std::string("dummyValue")
-    std::this_thread::sleep_for(1s);
-    //std::this_thread::sleep_for(TimeEnsureSuccessfulElection());
-    // A majority of nodes disconnected, this entry should not be committed.
-    ASSERT_EQ(CheckCommit(ln, str), 0);
-
-    ASSERT_EQ(leader->commit_index, ln - 1);
-    
-
-    leader->do_log("DOOMED"); // Index = 4
-    std::this_thread::sleep_for(TimeEnsureSuccessfulElection());
-    // A majority of nodes disconnected, this entry should not be committed.
-    ASSERT_EQ(CheckCommit(ln, "DOOMED"), 0);
-    ASSERT_EQ(leader->commit_index, ln - 1);
-
-
-    // Enable victim2
-    printf("GTEST: Now enable victim2.\n");
-    EnableReceive(victim2, {0, 1, 2});
-    EnableSend(victim2, {0, 1, 2});
-    print_state();
-    // Leader lost leadership because of victim2's reconnection, however, leader will soon re-gain its leadership.
-    WaitElection(victim2);
-    if(leader->state != RN::Leader){
-        // leader may already win the election before victim2 timeout.
-        // see followerlost.log
-        WaitElection(leader);
-    }
-    // Give time to AppendEntries
-    std::this_thread::sleep_for(1s);
-    // We use log entry "A" to force a commit_index advancing, otherwise "DOOMED" wont'be committed. 
-    // ref `on_append_entries_response`
-
-    client.Set(std::string("newKey"), std::string("newValue"));
-
-    std::this_thread::sleep_for(1s);
-    printf("GTEST: now check entries.\n");
-    // Now, this entry should be committed, because victim2 re-connected.
-    ASSERT_GE(CheckKvCommit(ln + 1, "newKey", "newValue"), MajorityCount(n));
-    ASSERT_EQ(leader->commit_index, ln + 1);
-    FreeKvServers();
+	std::shared_ptr<ShardmasterClient> innerShardmasterClient = std::make_shared<ShardmasterClient>();
+	for(int i=0;i<shardmasterServers.size();i++)
+        innerShardmasterClient->AddShardmasterNode(shardmasterServers[i]->rpcAddr);
+    innerShardmasterClient->SetCurrentAddr(((ShardmasterServer*)(leader->server_))->rpcAddr);
+	for(int i=0;i<3;i++)
+	{
+		for(int j=0;j<3;j++)
+		{
+			groups[i]->shardkvServers[j]->mck = innerShardmasterClient;
+		}
+	}
+	
+	ShardkvClient shardkvClient;
+	for(int i=0;i<3;i++)
+	{
+		for(int j=0;j<3;j++)
+		{
+			shardkvClient.AddShardkvNode(groups[i]->shardkvServers[j]->kvRpcAddr);
+		}	
+	}
+	
+	shardmasterClient.Join(0);
+	shardmasterClient.Join(1);
+	
+	int num=10;
+	std::vector<std::string> keyVec(num);
+	std::vector<std::string> valueVec(num);
+	
+	srand(time(0));
+	for(int i=0;i<num;i++)
+	{
+		keyVec[i] = std:to_string(i);
+		valueVec[i] = std::to_string(rand()%21);
+		shardkvClient.Put(keyVec[i],valueVec[i]);
+	}
+	
+	for(int i=0;i<num;i++)
+	{
+		std::string tempValue;
+		shardkvClient.Get(keyVec[i],tempValue);
+		ASSERT_EQ(valueVec[i],tempValue);
+	}
 }
 
+TEST(shardkv,joinleave)//gn = 3 ,n=3;
+{
+	MakeShardmasterServers(3);
+	WaitElection(shardmasterServers[0]->node);
+	using namespace std::chrono_literals;
+	std::this_thread::sleep_for(1s);
+	ASSERT_EQ(CountLeader(),1);
+    RaftNode* leader = PickNode({RN::Leader});
+    ASSERT_TRUE(leader!=nullptr);
+		
+	MakeGroups(3,3);
+	
+	ShardmasterClient shardmasterClient;
+	for(int i=0;i<shardmasterServers.size();i++)
+        shardmasterClient.AddShardmasterNode(shardmasterServers[i]->rpcAddr);
+    shardmasterClient.SetCurrentAddr(((ShardmasterServer*)(leader->server_))->rpcAddr);
+	
+	std::shared_ptr<ShardmasterClient> innerShardmasterClient = std::make_shared<ShardmasterClient>();
+	for(int i=0;i<shardmasterServers.size();i++)
+        innerShardmasterClient->AddShardmasterNode(shardmasterServers[i]->rpcAddr);
+    innerShardmasterClient->SetCurrentAddr(((ShardmasterServer*)(leader->server_))->rpcAddr);
+	for(int i=0;i<3;i++)
+	{
+		for(int j=0;j<3;j++)
+		{
+			groups[i]->shardkvServers[j]->mck = innerShardmasterClient;
+		}
+	}
+	
+	ShardkvClient shardkvClient;
+	for(int i=0;i<3;i++)
+	{
+		for(int j=0;j<3;j++)
+		{
+			shardkvClient.AddShardkvNode(groups[i]->shardkvServers[j]->kvRpcAddr);
+		}	
+	}
+	
+	
+	///加入group0
+	Group* joinGroup = groups[0];
+	std::unordered_map<int,std::vector<std::string>> tempMap;
+	std::vector<std::string> tempServers;
+	for(int i=0;i<(joinGroup->shardkvServers).size();i++)
+	{
+		tempServers.push_back((joinGroup->shardkvServers)[i]->kvRpcAddr);
+	}
+	tempMap[Group->gid] = tempServers;
+	shardmasterClient.Join(tempMap);
+	
+	int num=10;
+	std::vector<std::string> keyVec(num);
+	std::vector<std::string> valueVec(num);
+	
+	srand(time(0));
+	for(int i=0;i<num;i++)
+	{
+		keyVec[i] = std:to_string(i);
+		valueVec[i] = std::to_string(rand()%21);
+		shardkvClient.Put(keyVec[i],valueVec[i]);
+	}
+	
+	for(int i=0;i<num;i++)
+	{
+		std::string tempValue;
+		shardkvClient.Get(keyVec[i],tempValue);
+		ASSERT_EQ(valueVec[i],tempValue);
+	}
+	
+	///加入group1
+	Group* joinGroup = groups[1];
+	std::unordered_map<int,std::vector<std::string>> tempMap;
+	std::vector<std::string> tempServers;
+	for(int i=0;i<(joinGroup->shardkvServers).size();i++)
+	{
+		tempServers.push_back((joinGroup->shardkvServers)[i]->kvRpcAddr);
+	}
+	tempMap[Group->gid] = tempServers;
+	shardmasterClient.Join(tempMap);
 
-TEST(KvDatabase, CommitLeaderLost){
-    int n = 3;
-    ASSERT_GT(n, 2);
-    MakeKvServers(n);
-
-    for(auto nd:nodes)
-    {
-        KvDatabaseApplied(nd, [](NuftCallbackArg * arg, ApplyMessage * applymsg, std::lock_guard<std::mutex> & guard)
-        {
-            RaftNode * nd = arg->node;
-            std::vector<std::string> l = Nuke::split(applymsg->data, "=");
-            if((nd->kv_server->cache).find(applymsg->requestId)==(nd->kv_server->cache).end())
-            {
-                nd->kv_server->db->set(l[0],l[1]);
-            }
-            (nd->kv_server->cache).erase(applymsg->expirerequestId);
-            (nd->kv_server->cache)[applymsg->requestId] = l[0];
-        });
-    }
-
-    print_state();
-    WaitElection(servers[0]->node);
-    using namespace std::chrono_literals;
-    std::this_thread::sleep_for(TimeEnsureSuccessfulElection());
-    RaftNode * leader = PickNode({RN::Leader});
-    ASSERT_NE(leader, nullptr);
-    TermID original_term = leader->current_term;
-
-    KvClient client;
-    for(int i=0;i<nodes.size();i++)
-        client.AddKvNode(nodes[i]->name);
-    client.SetCurrentAddr(leader->name);
-
-    int ln1 = 4, ln2 = 4;
-
-    for(int i = 0; i < ln1; i++){
-        std::string logstr = std::string("log")+std::to_string(i)+std::string("=")+std::string("value")+std::to_string(i);
-        client.Set(std::string("log")+std::to_string(i),std::string("value")+std::to_string(i));
-        int retry = 0;
-        while(1){
-            std::this_thread::sleep_for(1s);
-            int support = CheckKvCommit(i, std::string("log")+std::to_string(i), std::string("value")+std::to_string(i));
-            int maj = MajorityCount(n);
-            if(support < maj){
-                // See Persist.CrashAll
-                printf("GTEST: retry %d, support %d < %d is not enough. logs[%d] is not committed. term %llu, original_term %llu\n", 
-                    retry, support, maj, i, leader->current_term, original_term);
-            }else{
-                printf("GTEST: support %d\n", support);
-                break;
-            }
-            retry++;
-            ASSERT_LT(retry, 4);
-        }
-        int support = CheckKvCommit(i, std::string("log")+std::to_string(i), std::string("value")+std::to_string(i));
-        ASSERT_GE(support, MajorityCount(n));
-    }
-    ASSERT_EQ(leader->commit_index, ln1 - 1);
-    
-    // Disable leader
-    DisableNode(leader);
-    RaftNode * ob = PickNode({RN::Follower, RN::Candidate});
-    WaitElection(ob);
-
-    std::this_thread::sleep_for(1s);
-    RaftNode * new_leader = PickNode({RN::Leader});
-    ASSERT_NE(new_leader, nullptr);
-    client.SetCurrentAddr(new_leader->name);
-
-    for(int i = ln1; i < ln1 + ln2; i++){
-        std::string logstr = std::string("log")+std::to_string(i)+std::string("=")+std::string("value")+std::to_string(i);
-        
-        client.Set(std::string("log")+std::to_string(i),std::string("value")+std::to_string(i));
-        std::this_thread::sleep_for(1s);
-        int support = CheckKvCommit(i, std::string("log")+std::to_string(i), std::string("value")+std::to_string(i));
-        if(support < MajorityCount(n)){
-            // See Persist.CrashAll
-            printf("GTEST: support %d is not enough. logs[%d] is not committed. term %llu, original_term %llu\n", 
-                support, i, leader->current_term, original_term);
-        }else{
-            printf("GTEST: support %d\n", support);
-        };
-        ASSERT_GE(support, MajorityCount(n));
-    }
-    ASSERT_EQ(new_leader->commit_index, ln1 + ln2 - 1);
-
-    FreeKvServers();
+	
+	for(int i=0;i<num;i++)
+	{
+		std::string tempValue;
+		shardkvClient.Get(keyVec[i],tempValue);
+		ASSERT_EQ(valueVec[i],tempValue);
+		
+		std::string tempAppendValue;
+		shardkvClient.Append(keyVec[i],tempAppendValue);
+		valueVec[i]=valueVec[i] + tempAppendValue;
+	}
+	
+	//leave group0
+	Group* leaveGroup = groups[0];
+	std::vector<int> tempGids;
+	for(int i=0;i<(leaveGroup->shardkvServers).size();i++)
+	{
+		tempGids.push_back((leaveGroup->shardkvServers)[i]->gid);
+	}
+	shardmasterClient.Leave(tempGids);
+	
+	for(int i=0;i<num;i++)
+	{
+		std::string tempValue;
+		shardkvClient.Get(keyVec[i],tempValue);
+		ASSERT_EQ(valueVec[i],tempValue);
+		
+		std::string tempAppendValue;
+		shardkvClient.Append(keyVec[i],tempAppendValue);
+		valueVec[i]=valueVec[i] + tempAppendValue;
+	}
+	
+	sleep(1);
+	
+	//checklogs
+	//暂时不管，后续补充
+	
+	for(int i=0;i<num;i++)
+	{
+		std::string tempValue;
+		shardkvClient.Get(keyVec[i],tempValue);
+		ASSERT_EQ(valueVec[i],tempValue);
+	}
 }
-*/
+
+TEST(shardmaster,normal1)
+{
+	MakeShardmasterServers(5);
+	WaitElection(shardmasterServers[0]->node);
+	using namespace std::chrono_literals;
+	std::this_thread::sleep_for(1s);
+	ASSERT_EQ(CountLeader(),1);
+    RaftNode* leader = PickNode({RN::Leader});
+    ASSERT_TRUE(leader!=nullptr);
+	
+	std::vector<Config> configs(6);
+	
+	
+	ShardmasterClient client;
+	for(int i=0;i<shardmasterServers.size();i++)
+        client.AddShardmasterNode(shardmasterServers[i]->rpcAddr);
+    client.SetCurrentAddr(((ShardmasterServer*)(leader->server_))->rpcAddr);
+	
+    
+	configs[0]=client.Query(-1);
+	
+	int gid1 = 1;
+	client.Join(std::unordered_map<int,std::vector<std::string>>{{gid1,std::vector<std::string>{"x","y","z"}}}); ///使用x,y,z等字母来代替ip串
+	configs[1]=client.Query(-1);
+	
+	int gid2 = 2;
+	client.Join(std::unordered_map<int,std::vector<std::string>>{{gid2,std::vector<std::string>{"a","b","c"}}});
+	configs[2]=client.Query(-1);
+
+	Config cfx = client.Query(-1);
+	//std::string sa1 = cfx.groups[gid1];
+	std::vector<std::string> vec1 = cfx.groups[gid1];
+	ASSERT_EQ(vec1.size(),3);
+	ASSERT_EQ(vec1[0],"x");
+	ASSERT_EQ(vec1[1],"y");
+	ASSERT_EQ(vec1[2],"z");
+	
+	//std::string sa2 = cfx.groups[gid2];
+	std::vector<std::string> vec2 = cfx.groups[gid2];
+	ASSERT_EQ(vec2.size(),3);
+	ASSERT_EQ(vec2[0],"a");
+	ASSERT_EQ(vec2[1],"b");
+	ASSERT_EQ(vec2[2],"c");
+	
+	client.Leave(std::vector<int>{gid1});
+	configs[4]=client.Query(-1);
+	
+	client.Leave(std::vector<int>{gid2});
+	configs[5]=client.Query(-1);
+}
+
+TEST(shardmaster,normal2)
+{
+	MakeShardmasterServers(5);
+	WaitElection(shardmasterServers[0]->node);
+	using namespace std::chrono_literals;
+	std::this_thread::sleep_for(1s);
+	ASSERT_EQ(CountLeader(),1);
+    RaftNode* leader = PickNode({RN::Leader});
+    ASSERT_TRUE(leader!=nullptr);
+	
+	std::vector<Config> configs(6);
+	
+	
+	ShardmasterClient client;
+	for(int i=0;i<shardmasterServers.size();i++)
+        client.AddShardmasterNode(shardmasterServers[i]->rpcAddr);
+    client.SetCurrentAddr(((ShardmasterServer*)(leader->server_))->rpcAddr);
+	
+    
+	configs[0]=client.Query(-1);
+	
+	for(int i=0;i<10;i++)
+		printf("%d ",configs[0].shards[i]);
+	printf("\n");
+	
+	int gid1 = 1;
+	client.Join(std::unordered_map<int,std::vector<std::string>>{{gid1,std::vector<std::string>{"x","y","z"}}}); ///使用x,y,z等字母来代替ip串
+	configs[1]=client.Query(-1);
+	
+	for(int i=0;i<10;i++)
+		printf("%d ",configs[1].shards[i]);
+	printf("\n");
+	
+	int gid2 = 2;
+	client.Join(std::unordered_map<int,std::vector<std::string>>{{gid2,std::vector<std::string>{"a","b","c"}}});
+	configs[2]=client.Query(-1);
+
+
+	for(int i=0;i<10;i++)
+		printf("%d ",configs[2].shards[i]);
+	printf("\n");
+	
+	Config cfx = client.Query(-1);
+	//std::string sa1 = cfx.groups[gid1];
+	std::vector<std::string> vec1 = cfx.groups[gid1];
+	ASSERT_EQ(vec1.size(),3);
+	ASSERT_EQ(vec1[0],"x");
+	ASSERT_EQ(vec1[1],"y");
+	ASSERT_EQ(vec1[2],"z");
+	
+	//std::string sa2 = cfx.groups[gid2];
+	std::vector<std::string> vec2 = cfx.groups[gid2];
+	ASSERT_EQ(vec2.size(),3);
+	ASSERT_EQ(vec2[0],"a");
+	ASSERT_EQ(vec2[1],"b");
+	ASSERT_EQ(vec2[2],"c");
+	
+	client.Leave(std::vector<int>{gid1});
+	configs[4]=client.Query(-1);
+	
+	std::vector<std::string> vec2 = configs[4].groups[gid2];
+	ASSERT_EQ(vec2.size(),6);
+	ASSERT_EQ(vec2[0],"a");
+	ASSERT_EQ(vec2[1],"b");
+	ASSERT_EQ(vec2[2],"c");
+	
+	for(int i=0;i<10;i++)
+		printf("%d ",configs[4].shards[i]);
+	printf("\n");
+	
+	client.Leave(std::vector<int>{gid2});
+	configs[5]=client.Query(-1);
+	
+	for(int i=0;i<10;i++)
+		printf("%d ",configs[5].shards[i]);
+	printf("\n");
+}
+
 
 int main(int argc, char ** argv){
     std::future<int> future = std::async(std::launch::async, [&](){

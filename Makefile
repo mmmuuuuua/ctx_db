@@ -118,8 +118,8 @@ $(BIN_ROOT)/libnuft.a: $(OBJS) $(GRPCOBJS)
 	ar rvs $(BIN_ROOT)/libnuft.a $(OBJS) $(GRPCOBJS)
 
 $(GRPCCODES):
-	protoc -I $(SRC_ROOT)/grpc --grpc_out=$(SRC_ROOT)/grpc --plugin=protoc-gen-grpc=`which grpc_cpp_plugin` $(SRC_ROOT)/grpc/raft_messages.proto $(SRC_ROOT)/grpc/client_messages.proto
-	protoc -I $(SRC_ROOT)/grpc --cpp_out=$(SRC_ROOT)/grpc $(SRC_ROOT)/grpc/raft_messages.proto $(SRC_ROOT)/grpc/client_messages.proto
+	protoc -I $(SRC_ROOT)/grpc --grpc_out=$(SRC_ROOT)/grpc --plugin=protoc-gen-grpc=`which grpc_cpp_plugin` $(SRC_ROOT)/grpc/raft_messages.proto $(SRC_ROOT)/grpc/client_messages.proto $(SRC_ROOT)/grpc/shardmaster_messages.proto $(SRC_ROOT)/grpc/shardkv_messages.proto $(SRC_ROOT)/grpc/shardkvinner_messages.proto
+	protoc -I $(SRC_ROOT)/grpc --cpp_out=$(SRC_ROOT)/grpc $(SRC_ROOT)/grpc/raft_messages.proto $(SRC_ROOT)/grpc/client_messages.proto $(SRC_ROOT)/grpc/shardmaster_messages.proto $(SRC_ROOT)/grpc/shardkv_messages.proto $(SRC_ROOT)/grpc/shardkvinner_messages.proto
 
 $(OBJ_ROOT)/grpc: $(OBJ_ROOT)
 	mkdir -p $(OBJ_ROOT)/grpc

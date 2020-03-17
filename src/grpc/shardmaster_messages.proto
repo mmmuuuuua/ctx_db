@@ -1,0 +1,86 @@
+syntax = "proto2";
+
+package shardmaster_messages;
+
+
+
+/*
+官方文档（https://developers.google.com/protocol-buffers/docs/proto#Maps）说了：
+The map syntax is equivalent to the following on the wire, so protocol buffers implementations that do not support maps can still handle your data:
+message MapFieldEntry {
+key_type key = 1;
+value_type value = 2;
+}
+repeated MapFieldEntry map_field = N;
+*/
+
+message Group{
+	required int64 gid=1;
+	required string servers=2;
+}
+
+message MapEntry{
+	required int64 key=1;
+	required string value=2;
+}
+
+message Config {
+	required int32 num = 1;
+	repeated int32 shards = 2; 
+	repeated Group groups = 3;
+}
+
+message JoinRequest{
+	required int64 clientid = 1;
+	required int64 requestseq = 2;
+	repeated MapEntry servers=3;
+}
+
+message JoinResponse{
+	required int32 flag=1;
+    optional string leader_name=2;  ///若操作请求的Node不是leader，则返回leader_name
+}
+
+message LeaveRequest{
+	required int64 clientid = 1;
+	required int64 requestseq = 2;
+	required string gids = 3;
+}
+
+message LeaveResponse{
+	required int32 flag=1;
+    optional string leader_name=2;  ///若操作请求的Node不是leader，则返回leader_name
+}
+
+message MoveRequest{
+	required int64 clientid = 1;
+	required int64 requestseq = 2;
+	required int64 shard = 3;
+	required int64 gid = 4;
+}
+
+message MoveResponse{
+	required int32 flag=1;
+    optional string leader_name=2;  ///若操作请求的Node不是leader，则返回leader_name
+}
+
+message QueryRequest{
+	required int64 num = 1; 
+}
+
+message QueryResponse{
+	required int32 flag=1;
+    optional string leader_name=2;  ///若操作请求的Node不是leader，则返回leader_name
+	optional Config config = 3;
+}
+
+
+
+service ShardmasterMessages {
+    rpc Join (JoinRequest) returns (JoinResponse) {}
+    rpc Leave (LeaveRequest) returns (LeaveResponse) {}
+    rpc Move (MoveRequest) returns (MoveResponse) {}
+    rpc Query (QueryRequest) returns (QueryResponse) {}
+}
+
+

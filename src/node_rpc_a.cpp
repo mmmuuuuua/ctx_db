@@ -1,23 +1,3 @@
-/*************************************************************************
-*  Nuft -- A C++17 Raft consensus algorithm library
-*  Copyright (C) 2018  Calvin Neo 
-*  Email: calvinneo@calvinneo.com;calvinneo1995@gmail.com
-*  Github: https://github.com/CalvinNeo/Nuft/
-*  
-*  This program is free software: you can redistribute it and/or modify
-*  it under the terms of the GNU General Public License as published by
-*  the Free Software Foundation, either version 3 of the License, or
-*  (at your option) any later version.
-*  
-*  This program is distributed in the hope that it will be useful,
-*  but WITHOUT ANY WARRANTY; without even the implied warranty of
-*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-*  GNU General Public License for more details.
-*  
-*  You should have received a copy of the GNU General Public License
-*  along with this program.  If not, see <https://www.gnu.org/licenses/>.
-**************************************************************************/
-
 #include "node.h"
 
 void RaftNode::send_heartbeat(std::lock_guard<std::mutex> & guard) {
@@ -86,7 +66,7 @@ int RaftNode::on_append_entries_request(raft_messages::AppendEntriesResponse * r
     // Try append entries, then return a `AppendEntriesResponse`.
 
     // In a earlier version, we require lock after we check `is_running()`, this may lead to segfault. See coredump_at_contains.log
-    
+    GUARD
 
     std::string peer_name = request.name();
     if((!is_running(guard)) || (!is_peer_receive_enabled(guard, peer_name))){
@@ -99,9 +79,6 @@ int RaftNode::on_append_entries_request(raft_messages::AppendEntriesResponse * r
         #endif
         return -1;
     }
-
-    GUARD
-
     if((uint64_t)request.time() < (uint64_t)start_timepoint){
         debug_node("Out-dated AppendEntriesRequest\n");
         return -1;
@@ -508,7 +485,9 @@ CANT_COMMIT:
     }
 }
 
-NuftResult RaftNode::do_log(std::lock_guard<std::mutex> & guard, ::raft_messages::LogEntry entry, std::function<void(RaftNode*)> f, int command){
+NuftResult RaftNode::do_log(std::lock_guard<std::mutex> & guard, ::raft_messages::LogEntry entry, 
+                            std::function<void(RaftNode*)> f, int command)
+{
     if(state != NodeState::Leader){
         // No, I am not the Leader, so please find the Leader first of all.
         debug_node("Not Leader!!!!!\n");
@@ -532,29 +511,233 @@ NuftResult RaftNode::do_log(std::lock_guard<std::mutex> & guard, ::raft_messages
     return index;
 }
 
+/*
+NuftResult RaftNode::do_log(std::string cmd,::shardmaster_messages::JoinRequest& request)
+{
+    GUARD
+    ::raft_messages::LogEntry entry;
+    entry.set_cmd(cmd);
+    ::raft_messages::JoinArgs args;
+    //args.set_ClientID(request.ClientID());
+    args.set_requestSeq(request.requestSeq());
 
-/* 
-NuftResult RaftNode::do_data_log(std::lock_guard<std::mutex> & guard, ::raft_messages::LogEntry entry,std::string key,std::string value){
-    if(state != NodeState::Leader){
-        // No, I am not the Leader, so please find the Leader first of all.
-        debug_node("Not Leader!!!!!\n");
-        return -NUFT_NOT_LEADER;
+    int len = request->servers_size();
+    for(int i=0;i<len;i++)
+    {
+        MapEntry server = request->servers(i);
+        MapEntry * me;
+        me = args.add_map_entry();
+        me->set_key(server.key());
+        me->set_value(server.value());
     }
-    if(!is_running(guard)){
-        debug_node("Not Running!!!!\n");
-        return -NUFT_FAIL;
-    }
-    IndexID index = last_log_index() + 1;
-    entry.set_term(this->current_term);
-    entry.set_index(index);
-    entry.set_key(key);
-    entry.set_value(value);
-    logs.push_back(entry);
+    entry.set_joinArgs(args);
+    return do_log(guard, entry, f, NUFT_CMD_NORMAL);
+}
 
-    if(persister) persister->Dump(guard);
-    
-    debug_node("Append LOCAL log Index %lld, Term %llu, commit_index %lld. Now copy to peers.\n", index, current_term, commit_index);
-    // "The leader appends the command to its log as a new entry, then issues AppendEntries RPCs in parallel..."
-    do_append_entries(guard, false);
-    return index;
-}*/
+NuftResult RaftNode::do_log(std::string cmd,::shardmaster_messages::LeaveRequest& request)
+{
+    GUARD
+    ::raft_messages::LogEntry entry;
+    entry.set_cmd(cmd);
+    ::raft_messages::LeaveArgs args;
+    //args.set_ClientID(request.ClientID());
+    args.set_requestSeq(request.requestSeq());
+    args.set_gids(request.gids());
+
+    entry.set_leaveArgs(args);
+    return do_log(guard, entry, f, NUFT_CMD_NORMAL);
+}
+NuftResult RaftNode::do_log(std::string cmd,::shardmaster_messages::MoveRequest& request)
+{
+    GUARD
+    ::raft_messages::LogEntry entry;
+    entry.set_cmd(cmd);
+    ::raft_messages::MoveArgs args;
+    //args.set_ClientID(request.ClientID());
+    args.set_requestSeq(request.requestSeq());
+    args.set_shard(request.shard());
+    args.set_gid(request.gid());
+
+    entry.set_moveArgs(args);
+    return do_log(guard, entry, f, NUFT_CMD_NORMAL);
+}
+NuftResult RaftNode::do_log(std::string cmd,::shardmaster_messages::QueryRequest& request)
+{
+    GUARD
+    ::raft_messages::LogEntry entry;
+    entry.set_cmd(cmd);
+    ::raft_messages::QueryArgs args;
+    args.set_num(request.num());
+
+    entry.set_queryArgs(args);
+    return do_log(guard, entry, f, NUFT_CMD_NORMAL);
+}
+
+
+NuftResult RaftNode::do_log(std::string cmd,::shardkv_messages::GetRequest& request)
+{
+    GUARD
+    ::raft_messages::LogEntry entry;
+    entry.set_cmd(cmd);
+    ::raft_messages::GetArgs args;
+ 
+    args.set_configNum(request.configNum());
+	args.set_key(request.key());
+	
+    entry.set_joinArgs(args);
+    return do_log(guard, entry, f, NUFT_CMD_NORMAL);
+}
+
+
+NuftResult RaftNode::do_log(std::string cmd,::shardkv_messages::PutAppendRequest& request)
+{
+    GUARD
+    ::raft_messages::LogEntry entry;
+    entry.set_cmd(cmd);
+    ::raft_messages::PutAppendArgs args;
+    //args.set_ClientID(request.ClientID());
+    args.set_requestSeq(request.requestSeq());
+	args.set_expireRequestId(request.expireRequestId());
+	args.set_configNum(request.configNum());
+	args.set_key(request.key());
+	args.set_value(request.value());
+	args.set_op(request.op());
+
+    entry.set_joinArgs(args);
+    return do_log(guard, entry, f, NUFT_CMD_NORMAL);
+}
+
+NuftResult RaftNode::do_log(std::string cmd,::shardkvinner_messages::ShardMigrationResponse& request)
+{
+	GUARD
+    ::raft_messages::LogEntry entry;
+    entry.set_cmd(cmd);
+    ::raft_messages::ShardMigrationArgs args;
+
+	args.set_shard(request.shard());
+	args.set_configNum(request.configNum());
+  
+    entry.set_joinArgs(args);
+    return do_log(guard, entry, f, NUFT_CMD_NORMAL);
+}
+*/
+
+
+///////////////////////第二版//////////////////////
+NuftResult RaftNode::do_log(std::string cmd,const ::shardmaster_messages::JoinRequest& request)
+{
+    GUARD
+    ::raft_messages::LogEntry entry;
+    entry.set_cmd(cmd);
+    shardmaster_messages::JoinRequest* temp = entry.mutable_joinrequest();
+    *temp = request;
+    //entry.set_join_request(request);
+    return do_log(guard, entry, [](RaftNode *){}, NUFT_CMD_NORMAL);
+}
+
+NuftResult RaftNode::do_log(std::string cmd,const ::shardmaster_messages::LeaveRequest& request)
+{
+    GUARD
+    ::raft_messages::LogEntry entry;
+    entry.set_cmd(cmd);
+    shardmaster_messages::LeaveRequest* temp = entry.mutable_leaverequest();
+    *temp = request;
+    return do_log(guard, entry, [](RaftNode *){}, NUFT_CMD_NORMAL);
+}
+NuftResult RaftNode::do_log(std::string cmd,const ::shardmaster_messages::MoveRequest& request)
+{
+    GUARD
+    ::raft_messages::LogEntry entry;
+    entry.set_cmd(cmd);
+    shardmaster_messages::MoveRequest* temp = entry.mutable_moverequest();
+    *temp = request;
+    return do_log(guard, entry, [](RaftNode *){}, NUFT_CMD_NORMAL);
+}
+NuftResult RaftNode::do_log(std::string cmd,const ::shardmaster_messages::QueryRequest& request)
+{
+    GUARD
+    ::raft_messages::LogEntry entry;
+    entry.set_cmd(cmd);
+    shardmaster_messages::QueryRequest* temp = entry.mutable_queryrequest();
+    *temp = request;
+    return do_log(guard, entry, [](RaftNode *){}, NUFT_CMD_NORMAL);
+}
+
+NuftResult RaftNode::do_log(std::string cmd,const ::shardkv_messages::GetRequest& request)
+{
+    GUARD
+    ::raft_messages::LogEntry entry;
+    entry.set_cmd(cmd);
+    shardkv_messages::GetRequest* temp = entry.mutable_getrequest();
+    *temp = request;
+    return do_log(guard, entry, [](RaftNode *){}, NUFT_CMD_NORMAL);
+}
+
+NuftResult RaftNode::do_log(std::string cmd,const ::shardkv_messages::PutAppendRequest& request)
+{
+    GUARD
+    ::raft_messages::LogEntry entry;
+    entry.set_cmd(cmd);
+    shardkv_messages::PutAppendRequest* temp = entry.mutable_putappendrequest();
+    *temp = request;
+    return do_log(guard, entry, [](RaftNode *){}, NUFT_CMD_NORMAL);
+}
+
+//将Config类型转换成::shardmaster_messages::Config类型
+NuftResult RaftNode::do_log(std::string cmd,const Config& newConfig)
+{
+    GUARD
+    ::raft_messages::LogEntry entry;
+    entry.set_cmd(cmd);
+	
+	::shardmaster_messages::Config config;
+	config.set_num(newConfig.num);
+	for(int i=0;i<newConfig.shards.size();i++)
+	{
+		//int* shard;
+		//shard = config.add_shards();
+		//shard = newConfig.shards[i];
+        config.add_shards(newConfig.shards[i]);
+
+	}
+	for(auto iter=newConfig.groups.begin();iter!=newConfig.groups.end();iter++)
+	{
+		std::vector<std::string> temp_vec = iter->second;
+		std::string temp_str;
+		for(int j=0;j<temp_vec.size();j++)
+		{
+			if(!temp_str.empty())
+				temp_str=temp_str+"-"; //以-分隔
+			temp_str=temp_str+temp_vec[j];
+		}
+		shardmaster_messages::Group* me;
+		me = config.add_groups();
+		me->set_gid(iter->first);
+		me->set_servers(temp_str);
+	}
+
+	shardmaster_messages::Config* temp = entry.mutable_newconfig();
+    *temp = config;
+    return do_log(guard, entry, [](RaftNode *){}, NUFT_CMD_NORMAL);
+}
+
+NuftResult RaftNode::do_log(std::string cmd,const ::shardkvinner_messages::ShardMigrationResponse& response)
+{
+    GUARD
+    ::raft_messages::LogEntry entry;
+    entry.set_cmd(cmd);
+    shardkvinner_messages::ShardMigrationResponse* temp = entry.mutable_shardmigrationresponse();
+    *temp = response;
+    return do_log(guard, entry, [](RaftNode *){}, NUFT_CMD_NORMAL);
+}
+
+NuftResult RaftNode::do_log(std::string cmd,const ::shardkvinner_messages::ShardCleanupRequest& request)
+{
+    GUARD
+    ::raft_messages::LogEntry entry;
+    entry.set_cmd(cmd);
+    shardkvinner_messages::ShardCleanupRequest* temp = entry.mutable_shardcleanuprequest();
+    *temp = request;
+    return do_log(guard, entry, [](RaftNode *){}, NUFT_CMD_NORMAL);
+}
+

@@ -1,6 +1,73 @@
 syntax = "proto2";
 
+import "shardkv_messages.proto";
+import "shardkvinner_messages.proto";
+import "shardmaster_messages.proto";
+
 package raft_messages;
+
+
+/*
+ssage MapEntry{
+	optional int64 key=1;
+	optional string value=2;
+}
+
+message JoinArgs{
+	required int64 requestSeq = 1;
+	repeated MapEntry servers=2;
+}
+
+message LeaveArgs{
+	required int64 requestSeq = 1;
+	required string gids = 2;  //能否改成vector
+}
+
+message MoveArgs{
+	required int64 requestSeq = 1;
+	required int64 shard = 2;
+	required int64 gid = 3;
+}
+
+message QueryArgs{
+	required int64 num = 1; 
+}
+
+
+message GetArgs{
+	required int64 configNum = 1;
+	required string key = 2;
+}
+
+
+message PutAppendArgs{
+	required int64 requestId=1;	
+	required int64 expireRequestId=2;
+	required int64 configNum=3;
+	required string key=4;
+	required string value=5;
+	required string op=6;
+}
+
+message Data{
+	required string key=1;
+	required string value=2;
+}
+
+message Cache{
+	required int64 key=1;
+	required string value=2;
+}
+
+message ShardMigrationArgs{
+	required int64 flag=1;
+	required int64 shard=2;
+	required int64 configNum=3;
+	repeated Data data=4;
+	repeated Cache cache=5;
+}
+*/
+
 
 message LogEntry {
     // `index` and `term` are set by `do_log`.
@@ -9,13 +76,36 @@ message LogEntry {
     // By default set to 0, as normal log
     required int32 command = 3;
     optional bytes data = 4;
+	
     ////ctx
     optional string key = 5;
     optional string value = 6;
-
-	optional int64 requestid = 7;
-    optional int64 expirerequestid = 8;
-    //optional int64 clientid=9;
+	
+	//由于每次需要apply的LogEntry内容形式不尽相同，这里通过protobuf的optional关键字以及一个cmd字段让程序能够识别出每次需要的应用的是哪方面的内容
+	optional string cmd = 7;
+	
+	optional shardmaster_messages.JoinRequest joinrequest = 8;
+	optional shardmaster_messages.LeaveRequest leaverequest = 9;
+	optional shardmaster_messages.MoveRequest moverequest = 10;
+	optional shardmaster_messages.QueryRequest queryrequest = 11;
+	
+	optional shardkv_messages.GetRequest getrequest = 12;
+	optional shardkv_messages.PutAppendRequest putappendrequest = 13;
+	
+	optional shardmaster_messages.Config newconfig = 14;
+	
+	optional shardkvinner_messages.ShardMigrationResponse shardmigrationresponse = 15;
+	optional shardkvinner_messages.ShardCleanupRequest shardcleanuprequest = 16;
+	
+	/*
+	optional JoinArgs joinArgs= 8;
+    optional LeaveArgs leaveArgs= 9;
+    optional MoveArgs moveArgs= 10;
+    optional QueryArgs queryArgs= 11;
+	//optional GetArgs getArgs= 12;
+	optional PutAppendArgs putAppendArgs=13;
+	optional ShardMigrationArgs shardMigrationArgs=14;
+	*/
 }
 
 message AppendEntriesRequest {

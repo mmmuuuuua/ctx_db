@@ -16,6 +16,8 @@ using AppendEntriesResponse = ::raft_messages::AppendEntriesResponse;
 using InstallSnapshotRequest = ::raft_messages::InstallSnapshotRequest;
 using InstallSnapshotResponse = ::raft_messages::InstallSnapshotResponse;
 
+// See https://groups.google.com/forum/#!topic/grpc-io/G7FzRNQBWhU
+// and https://grpc.io/grpc/cpp/classgrpc_1_1_client_reader.html
 
 #if defined(USE_GRPC_SYNC) && defined(USE_GRPC_STREAM)
 RaftMessagesStreamClientSync::RaftMessagesStreamClientSync(const char * addr, struct RaftNode * _raft_node) : raft_node(_raft_node), peer_name(addr) {
