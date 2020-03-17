@@ -1,3 +1,23 @@
+/*************************************************************************
+*  Nuft -- A C++17 Raft consensus algorithm library
+*  Copyright (C) 2018  Calvin Neo 
+*  Email: calvinneo@calvinneo.com;calvinneo1995@gmail.com
+*  Github: https://github.com/CalvinNeo/Nuft/
+*  
+*  This program is free software: you can redistribute it and/or modify
+*  it under the terms of the GNU General Public License as published by
+*  the Free Software Foundation, either version 3 of the License, or
+*  (at your option) any later version.
+*  
+*  This program is distributed in the hope that it will be useful,
+*  but WITHOUT ANY WARRANTY; without even the implied warranty of
+*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+*  GNU General Public License for more details.
+*  
+*  You should have received a copy of the GNU General Public License
+*  along with this program.  If not, see <https://www.gnu.org/licenses/>.
+**************************************************************************/
+
 #pragma once
 
 #include <cstring>
@@ -63,8 +83,6 @@ struct RaftMessagesClientSync : std::enable_shared_from_this<RaftMessagesClientS
     using AppendEntriesResponse = ::raft_messages::AppendEntriesResponse;
     using InstallSnapshotRequest = ::raft_messages::InstallSnapshotRequest;
     using InstallSnapshotResponse = ::raft_messages::InstallSnapshotResponse; 
-    //using HandleClientRequest = ::raft_messages::HandleClientRequest;
-    //using HandleClientResponse = ::raft_messages::HandleClientResponse;
 
     // Back reference to raft node.
     struct RaftNode * raft_node = nullptr;
@@ -209,10 +227,6 @@ struct RaftMessagesServiceImpl : public raft_messages::RaftMessages::Service {
 
     Status InstallSnapshot(ServerContext* context, const raft_messages::InstallSnapshotRequest* request,
                             raft_messages::InstallSnapshotResponse* response) override;
-    
-    ////////ctx
-    Status HandleClient(ServerContext* context,const raft_messages::HandleClientRequest* request,
-                        raft_messages::HandleClientResponse* respanse) override;
 };
 
 
@@ -236,8 +250,6 @@ struct RaftMessagesStreamServiceImpl : public raft_messages::RaftStreamMessages:
     using AppendEntriesResponse = ::raft_messages::AppendEntriesResponse;
     using InstallSnapshotRequest = ::raft_messages::InstallSnapshotRequest;
     using InstallSnapshotResponse = ::raft_messages::InstallSnapshotResponse;
-    //using HandleClientRequest = ::raft_messages::HandleClientRequest;
-    //using HandleClientResponse = ::raft_messages::HandleClientResponse;
 
     struct RaftNode * raft_node = nullptr;
     std::atomic<bool> stop;

@@ -24,13 +24,10 @@ ShardmasterServer::ShardmasterServer(const std::string& nodeAddr_,const std::str
 
 ShardmasterServer::~ShardmasterServer()
 {
-	printf("start delete ShardmasterServer raft node\n");
     delete node;
     node = nullptr;
-	printf("start delete ShardmasterServer shardmasterRpcServer_\n");
     delete shardmasterRpcServer_;
     shardmasterRpcServer_ = nullptr;
-	printf("~ShardmasterServer end\n");
 }
 
 int ShardmasterServer::onJoin(shardmaster_messages::JoinResponse* response_ptr,const shardmaster_messages::JoinRequest& request)
@@ -174,7 +171,7 @@ int ShardmasterServer::onQuery(shardmaster_messages::QueryResponse* response_ptr
 			me->set_gid(iter->first);
 			me->set_servers(temp_str);
 		}
-		temp_config->set_num(config.num);
+		temp_config->set_num(request.num());
 
 
 		response.set_flag(SUCCESS);
@@ -223,7 +220,7 @@ int ShardmasterServer::onQuery(shardmaster_messages::QueryResponse* response_ptr
 				me->set_gid(iter->first);
 				me->set_servers(temp_str);
 			}
-			temp_config->set_num(config.num); 
+			temp_config->set_num(request.num());
 
 			response.set_flag(SUCCESS);
 		}

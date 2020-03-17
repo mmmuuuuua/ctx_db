@@ -1,3 +1,23 @@
+/*************************************************************************
+*  Nuft -- A C++17 Raft consensus algorithm library
+*  Copyright (C) 2018  Calvin Neo 
+*  Email: calvinneo@calvinneo.com;calvinneo1995@gmail.com
+*  Github: https://github.com/CalvinNeo/Nuft/
+*  
+*  This program is free software: you can redistribute it and/or modify
+*  it under the terms of the GNU General Public License as published by
+*  the Free Software Foundation, either version 3 of the License, or
+*  (at your option) any later version.
+*  
+*  This program is distributed in the hope that it will be useful,
+*  but WITHOUT ANY WARRANTY; without even the implied warranty of
+*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+*  GNU General Public License for more details.
+*  
+*  You should have received a copy of the GNU General Public License
+*  along with this program.  If not, see <https://www.gnu.org/licenses/>.
+**************************************************************************/
+
 #include "test_utils.inc.h"
 
 
@@ -894,10 +914,10 @@ TEST(Concurrent, LostAndCrash){
     GenericTest(200, 5, -1, true, true, 3);
 }
 
-*/
 
 
-TEST(KvDatabase, client){
+
+TEST(KvDatabase, client1){   ////第一个版本
     MakeRaftNodes(5);
     WaitElection(nodes[0]);
     using namespace std::chrono_literals;
@@ -934,6 +954,364 @@ TEST(KvDatabase, client){
 
     FreeRaftNodes();
 }
+
+
+TEST(KvDatabase, client2)  ///第二个版本
+{
+    MakeKvServers(5);
+    WaitElection(servers[0]->node);
+    using namespace std::chrono_literals;
+    std::this_thread::sleep_for(1s);
+    ASSERT_EQ(CountLeader(),1);
+    RaftNode* leader = PickNode({RN::Leader});
+    ASSERT_TRUE(leader!=nullptr);
+
+    for(auto nd:nodes)
+    {
+        KvDatabaseApplied(nd, [](NuftCallbackArg * arg, ApplyMessage * applymsg, std::lock_guard<std::mutex> & guard)
+        {
+            RaftNode * nd = arg->node;
+            std::vector<std::string> l = Nuke::split(applymsg->data, "=");
+            //std::lock_guard<std::mutex> guard((monitor_mut));
+            (KvServer*)(nd->server_)->db->set(l[0],l[1]);
+        });
+    }
+
+    KvClient client;
+    for(int i=0;i<nodes.size();i++)
+        client.AddKvNode(nodes[i]->name);
+    client.SetCurrentAddr(leader->name);
+
+    int ln = 5;
+    for(int i=0;i<ln;i++)
+    {
+        std::string logstr = std::string("log")+std::to_string(i)+std::string("=")+std::string("value")+std::to_string(i);
+        client.Set(std::string("log")+std::to_string(i),std::string("value")+std::to_string(i));
+        std::this_thread::sleep_for(1s);
+        int support = CheckKvCommit(i, std::string("log")+std::to_string(i),std::string("value")+std::to_string(i));
+        ASSERT_GE(support, MajorityCount(5));
+    }
+    FreeKvServers();
+}
+*/
+
+
+TEST(shardkv,staticshards) //gn = 3 ,n=3;
+{
+	MakeShardmasterServers(3);
+	WaitElection(shardmasterServers[0]->node);
+	using namespace std::chrono_literals;
+	std::this_thread::sleep_for(1s);
+	ASSERT_EQ(CountLeader(),1);
+    RaftNode* leader = PickNode({RN::Leader});
+    ASSERT_TRUE(leader!=nullptr);
+	
+	MakeGroups(3,3);
+	
+	ShardmasterClient shardmasterClient;
+	for(int i=0;i<shardmasterServers.size();i++)
+        shardmasterClient.AddShardmasterNode(shardmasterServers[i]->rpcAddr);
+    shardmasterClient.SetCurrentAddr(((ShardmasterServer*)(leader->server_))->rpcAddr);
+	
+
+	std::shared_ptr<ShardmasterClient> innerShardmasterClient = std::make_shared<ShardmasterClient>();
+	for(int i=0;i<shardmasterServers.size();i++)
+        innerShardmasterClient->AddShardmasterNode(shardmasterServers[i]->rpcAddr);
+    innerShardmasterClient->SetCurrentAddr(((ShardmasterServer*)(leader->server_))->rpcAddr);
+	for(int i=0;i<3;i++)
+	{
+		for(int j=0;j<3;j++)
+		{
+			groups[i]->shardkvServers[j]->mck = innerShardmasterClient;
+		}
+	}
+	
+	ShardkvClient shardkvClient;
+	for(int i=0;i<3;i++)
+	{
+		for(int j=0;j<3;j++)
+		{
+			shardkvClient.AddShardkvNode(groups[i]->shardkvServers[j]->kvRpcAddr);
+		}	
+	}
+	
+	shardmasterClient.Join(0);
+	shardmasterClient.Join(1);
+	
+	int num=10;
+	std::vector<std::string> keyVec(num);
+	std::vector<std::string> valueVec(num);
+	
+	srand(time(0));
+	for(int i=0;i<num;i++)
+	{
+		keyVec[i] = std:to_string(i);
+		valueVec[i] = std::to_string(rand()%21);
+		shardkvClient.Put(keyVec[i],valueVec[i]);
+	}
+	
+	for(int i=0;i<num;i++)
+	{
+		std::string tempValue;
+		shardkvClient.Get(keyVec[i],tempValue);
+		ASSERT_EQ(valueVec[i],tempValue);
+	}
+}
+
+TEST(shardkv,joinleave)//gn = 3 ,n=3;
+{
+	MakeShardmasterServers(3);
+	WaitElection(shardmasterServers[0]->node);
+	using namespace std::chrono_literals;
+	std::this_thread::sleep_for(1s);
+	ASSERT_EQ(CountLeader(),1);
+    RaftNode* leader = PickNode({RN::Leader});
+    ASSERT_TRUE(leader!=nullptr);
+		
+	MakeGroups(3,3);
+	
+	ShardmasterClient shardmasterClient;
+	for(int i=0;i<shardmasterServers.size();i++)
+        shardmasterClient.AddShardmasterNode(shardmasterServers[i]->rpcAddr);
+    shardmasterClient.SetCurrentAddr(((ShardmasterServer*)(leader->server_))->rpcAddr);
+	
+	std::shared_ptr<ShardmasterClient> innerShardmasterClient = std::make_shared<ShardmasterClient>();
+	for(int i=0;i<shardmasterServers.size();i++)
+        innerShardmasterClient->AddShardmasterNode(shardmasterServers[i]->rpcAddr);
+    innerShardmasterClient->SetCurrentAddr(((ShardmasterServer*)(leader->server_))->rpcAddr);
+	for(int i=0;i<3;i++)
+	{
+		for(int j=0;j<3;j++)
+		{
+			groups[i]->shardkvServers[j]->mck = innerShardmasterClient;
+		}
+	}
+	
+	ShardkvClient shardkvClient;
+	for(int i=0;i<3;i++)
+	{
+		for(int j=0;j<3;j++)
+		{
+			shardkvClient.AddShardkvNode(groups[i]->shardkvServers[j]->kvRpcAddr);
+		}	
+	}
+	
+	
+	///加入group0
+	Group* joinGroup = groups[0];
+	std::unordered_map<int,std::vector<std::string>> tempMap;
+	std::vector<std::string> tempServers;
+	for(int i=0;i<(joinGroup->shardkvServers).size();i++)
+	{
+		tempServers.push_back((joinGroup->shardkvServers)[i]->kvRpcAddr);
+	}
+	tempMap[Group->gid] = tempServers;
+	shardmasterClient.Join(tempMap);
+	
+	int num=10;
+	std::vector<std::string> keyVec(num);
+	std::vector<std::string> valueVec(num);
+	
+	srand(time(0));
+	for(int i=0;i<num;i++)
+	{
+		keyVec[i] = std:to_string(i);
+		valueVec[i] = std::to_string(rand()%21);
+		shardkvClient.Put(keyVec[i],valueVec[i]);
+	}
+	
+	for(int i=0;i<num;i++)
+	{
+		std::string tempValue;
+		shardkvClient.Get(keyVec[i],tempValue);
+		ASSERT_EQ(valueVec[i],tempValue);
+	}
+	
+	///加入group1
+	Group* joinGroup = groups[1];
+	std::unordered_map<int,std::vector<std::string>> tempMap;
+	std::vector<std::string> tempServers;
+	for(int i=0;i<(joinGroup->shardkvServers).size();i++)
+	{
+		tempServers.push_back((joinGroup->shardkvServers)[i]->kvRpcAddr);
+	}
+	tempMap[Group->gid] = tempServers;
+	shardmasterClient.Join(tempMap);
+
+	
+	for(int i=0;i<num;i++)
+	{
+		std::string tempValue;
+		shardkvClient.Get(keyVec[i],tempValue);
+		ASSERT_EQ(valueVec[i],tempValue);
+		
+		std::string tempAppendValue;
+		shardkvClient.Append(keyVec[i],tempAppendValue);
+		valueVec[i]=valueVec[i] + tempAppendValue;
+	}
+	
+	//leave group0
+	Group* leaveGroup = groups[0];
+	std::vector<int> tempGids;
+	for(int i=0;i<(leaveGroup->shardkvServers).size();i++)
+	{
+		tempGids.push_back((leaveGroup->shardkvServers)[i]->gid);
+	}
+	shardmasterClient.Leave(tempGids);
+	
+	for(int i=0;i<num;i++)
+	{
+		std::string tempValue;
+		shardkvClient.Get(keyVec[i],tempValue);
+		ASSERT_EQ(valueVec[i],tempValue);
+		
+		std::string tempAppendValue;
+		shardkvClient.Append(keyVec[i],tempAppendValue);
+		valueVec[i]=valueVec[i] + tempAppendValue;
+	}
+	
+	sleep(1);
+	
+	//checklogs
+	//暂时不管，后续补充
+	
+	for(int i=0;i<num;i++)
+	{
+		std::string tempValue;
+		shardkvClient.Get(keyVec[i],tempValue);
+		ASSERT_EQ(valueVec[i],tempValue);
+	}
+}
+
+TEST(shardmaster,normal1)
+{
+	MakeShardmasterServers(5);
+	WaitElection(shardmasterServers[0]->node);
+	using namespace std::chrono_literals;
+	std::this_thread::sleep_for(1s);
+	ASSERT_EQ(CountLeader(),1);
+    RaftNode* leader = PickNode({RN::Leader});
+    ASSERT_TRUE(leader!=nullptr);
+	
+	std::vector<Config> configs(6);
+	
+	
+	ShardmasterClient client;
+	for(int i=0;i<shardmasterServers.size();i++)
+        client.AddShardmasterNode(shardmasterServers[i]->rpcAddr);
+    client.SetCurrentAddr(((ShardmasterServer*)(leader->server_))->rpcAddr);
+	
+    
+	configs[0]=client.Query(-1);
+	
+	int gid1 = 1;
+	client.Join(std::unordered_map<int,std::vector<std::string>>{{gid1,std::vector<std::string>{"x","y","z"}}}); ///使用x,y,z等字母来代替ip串
+	configs[1]=client.Query(-1);
+	
+	int gid2 = 2;
+	client.Join(std::unordered_map<int,std::vector<std::string>>{{gid2,std::vector<std::string>{"a","b","c"}}});
+	configs[2]=client.Query(-1);
+
+	Config cfx = client.Query(-1);
+	//std::string sa1 = cfx.groups[gid1];
+	std::vector<std::string> vec1 = cfx.groups[gid1];
+	ASSERT_EQ(vec1.size(),3);
+	ASSERT_EQ(vec1[0],"x");
+	ASSERT_EQ(vec1[1],"y");
+	ASSERT_EQ(vec1[2],"z");
+	
+	//std::string sa2 = cfx.groups[gid2];
+	std::vector<std::string> vec2 = cfx.groups[gid2];
+	ASSERT_EQ(vec2.size(),3);
+	ASSERT_EQ(vec2[0],"a");
+	ASSERT_EQ(vec2[1],"b");
+	ASSERT_EQ(vec2[2],"c");
+	
+	client.Leave(std::vector<int>{gid1});
+	configs[4]=client.Query(-1);
+	
+	client.Leave(std::vector<int>{gid2});
+	configs[5]=client.Query(-1);
+}
+
+TEST(shardmaster,normal2)
+{
+	MakeShardmasterServers(5);
+	WaitElection(shardmasterServers[0]->node);
+	using namespace std::chrono_literals;
+	std::this_thread::sleep_for(1s);
+	ASSERT_EQ(CountLeader(),1);
+    RaftNode* leader = PickNode({RN::Leader});
+    ASSERT_TRUE(leader!=nullptr);
+	
+	std::vector<Config> configs(6);
+	
+	
+	ShardmasterClient client;
+	for(int i=0;i<shardmasterServers.size();i++)
+        client.AddShardmasterNode(shardmasterServers[i]->rpcAddr);
+    client.SetCurrentAddr(((ShardmasterServer*)(leader->server_))->rpcAddr);
+	
+    
+	configs[0]=client.Query(-1);
+	
+	for(int i=0;i<10;i++)
+		printf("%d ",configs[0].shards[i]);
+	printf("\n");
+	
+	int gid1 = 1;
+	client.Join(std::unordered_map<int,std::vector<std::string>>{{gid1,std::vector<std::string>{"x","y","z"}}}); ///使用x,y,z等字母来代替ip串
+	configs[1]=client.Query(-1);
+	
+	for(int i=0;i<10;i++)
+		printf("%d ",configs[1].shards[i]);
+	printf("\n");
+	
+	int gid2 = 2;
+	client.Join(std::unordered_map<int,std::vector<std::string>>{{gid2,std::vector<std::string>{"a","b","c"}}});
+	configs[2]=client.Query(-1);
+
+
+	for(int i=0;i<10;i++)
+		printf("%d ",configs[2].shards[i]);
+	printf("\n");
+	
+	Config cfx = client.Query(-1);
+	//std::string sa1 = cfx.groups[gid1];
+	std::vector<std::string> vec1 = cfx.groups[gid1];
+	ASSERT_EQ(vec1.size(),3);
+	ASSERT_EQ(vec1[0],"x");
+	ASSERT_EQ(vec1[1],"y");
+	ASSERT_EQ(vec1[2],"z");
+	
+	//std::string sa2 = cfx.groups[gid2];
+	std::vector<std::string> vec2 = cfx.groups[gid2];
+	ASSERT_EQ(vec2.size(),3);
+	ASSERT_EQ(vec2[0],"a");
+	ASSERT_EQ(vec2[1],"b");
+	ASSERT_EQ(vec2[2],"c");
+	
+	client.Leave(std::vector<int>{gid1});
+	configs[4]=client.Query(-1);
+	
+	std::vector<std::string> vec2 = configs[4].groups[gid2];
+	ASSERT_EQ(vec2.size(),6);
+	ASSERT_EQ(vec2[0],"a");
+	ASSERT_EQ(vec2[1],"b");
+	ASSERT_EQ(vec2[2],"c");
+	
+	for(int i=0;i<10;i++)
+		printf("%d ",configs[4].shards[i]);
+	printf("\n");
+	
+	client.Leave(std::vector<int>{gid2});
+	configs[5]=client.Query(-1);
+	
+	for(int i=0;i<10;i++)
+		printf("%d ",configs[5].shards[i]);
+	printf("\n");
+}
+
 
 int main(int argc, char ** argv){
     std::future<int> future = std::async(std::launch::async, [&](){

@@ -3,9 +3,8 @@
 kv_database::kv_database()
 {
     dbDir = "/tmp/default";
-    raftnode_=NULL;
 }
-kv_database::kv_database(std::string & dbDir,RaftNode * raftnode)  //对dbDir赋值 
+kv_database::kv_database(std::string & dbDir)  //对dbDir赋值 
 {
     rocksdb::Options options;
     // Optimize RocksDB. This is the easiest way to get RocksDB to perform well
@@ -17,7 +16,6 @@ kv_database::kv_database(std::string & dbDir,RaftNode * raftnode)  //对dbDir赋
     // open DB
     rocksdb::Status s = rocksdb::DB::Open(options, dbDir, &db);
     assert(s.ok());
-    raftnode_ = raftnode;
 }
 
 bool kv_database::set(const std::string & key,const std::string & value)

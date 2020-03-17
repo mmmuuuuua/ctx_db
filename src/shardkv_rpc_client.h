@@ -34,7 +34,7 @@ private:
     std::unique_ptr<shardkv_messages::ShardkvMessages::Stub> stub;
 };
 
-bool ShardkvRpcClient::Get(const GetRequest& request,GetResponse& response)
+bool ShardkvRpcClient::Get(const JoinRequest& request,JoinResponse& response)
 {
 	ClientContext context;
     Status status = stub->Get(&context, request, &response);
@@ -43,7 +43,7 @@ bool ShardkvRpcClient::Get(const GetRequest& request,GetResponse& response)
     else
         return false;
 }
-bool ShardkvRpcClient::PutAppend(const PutAppendRequest& request,PutAppendResponse& response)
+bool ShardkvRpcClient::PutAppend(const LeaveRequest& request,LeaveResponse& response)
 {
 	ClientContext context;
     Status status = stub->PutAppend(&context, request, &response);

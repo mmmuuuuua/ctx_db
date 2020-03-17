@@ -55,11 +55,14 @@ SRCS = $(wildcard $(SRC_ROOT)/*.cpp)
 SRCS_H = $(wildcard $(SRC_ROOT)/*.h)
 OBJS = $(patsubst $(SRC_ROOT)%, $(OBJ_ROOT)%, $(patsubst %cpp, %o, $(SRCS)))
 DYOBJS = $(patsubst $(SRC_ROOT)%, $(DYOBJ_ROOT)%, $(patsubst %cpp, %o, $(SRCS)))
+
 GRPCSRCS_H = $(patsubst %proto, %pb.h, $(wildcard $(SRC_ROOT)/grpc/*.proto))
 GRPCSRCS_H += $(patsubst %proto, %grpc.pb.h, $(wildcard $(SRC_ROOT)/grpc/*.proto))
 GRPCSRCS_CPP = $(patsubst %proto, %pb.cc, $(wildcard $(SRC_ROOT)/grpc/*.proto))
 GRPCSRCS_CPP += $(patsubst %proto, %grpc.pb.cc, $(wildcard $(SRC_ROOT)/grpc/*.proto))
 GRPCCODES = $(GRPCSRCS_H) $(GRPCSRCS_CPP)
+
+
 GRPCOBJS = $(patsubst $(SRC_ROOT)%, $(OBJ_ROOT)%, $(patsubst %cc, %o, $(GRPCSRCS_CPP)))
 DYGRPCOBJS = $(patsubst $(SRC_ROOT)%, $(DYOBJ_ROOT)%, $(patsubst %cc, %o, $(GRPCSRCS_CPP)))
 
@@ -115,8 +118,8 @@ $(BIN_ROOT)/libnuft.a: $(OBJS) $(GRPCOBJS)
 	ar rvs $(BIN_ROOT)/libnuft.a $(OBJS) $(GRPCOBJS)
 
 $(GRPCCODES):
-	protoc -I $(SRC_ROOT)/grpc --grpc_out=$(SRC_ROOT)/grpc --plugin=protoc-gen-grpc=`which grpc_cpp_plugin` $(SRC_ROOT)/grpc/raft_messages.proto
-	protoc -I $(SRC_ROOT)/grpc --cpp_out=$(SRC_ROOT)/grpc $(SRC_ROOT)/grpc/raft_messages.proto
+	protoc -I $(SRC_ROOT)/grpc --grpc_out=$(SRC_ROOT)/grpc --plugin=protoc-gen-grpc=`which grpc_cpp_plugin` $(SRC_ROOT)/grpc/raft_messages.proto $(SRC_ROOT)/grpc/client_messages.proto $(SRC_ROOT)/grpc/shardmaster_messages.proto $(SRC_ROOT)/grpc/shardkv_messages.proto $(SRC_ROOT)/grpc/shardkvinner_messages.proto
+	protoc -I $(SRC_ROOT)/grpc --cpp_out=$(SRC_ROOT)/grpc $(SRC_ROOT)/grpc/raft_messages.proto $(SRC_ROOT)/grpc/client_messages.proto $(SRC_ROOT)/grpc/shardmaster_messages.proto $(SRC_ROOT)/grpc/shardkv_messages.proto $(SRC_ROOT)/grpc/shardkvinner_messages.proto
 
 $(OBJ_ROOT)/grpc: $(OBJ_ROOT)
 	mkdir -p $(OBJ_ROOT)/grpc

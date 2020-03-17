@@ -1,3 +1,23 @@
+/*************************************************************************
+*  Nuft -- A C++17 Raft consensus algorithm library
+*  Copyright (C) 2018  Calvin Neo 
+*  Email: calvinneo@calvinneo.com;calvinneo1995@gmail.com
+*  Github: https://github.com/CalvinNeo/Nuft/
+*  
+*  This program is free software: you can redistribute it and/or modify
+*  it under the terms of the GNU General Public License as published by
+*  the Free Software Foundation, either version 3 of the License, or
+*  (at your option) any later version.
+*  
+*  This program is distributed in the hope that it will be useful,
+*  but WITHOUT ANY WARRANTY; without even the implied warranty of
+*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+*  GNU General Public License for more details.
+*  
+*  You should have received a copy of the GNU General Public License
+*  along with this program.  If not, see <https://www.gnu.org/licenses/>.
+**************************************************************************/
+
 #include "grpc_utils.h"
 #include "node.h"
 #include <iostream>
@@ -8,8 +28,6 @@ using AppendEntriesRequest = ::raft_messages::AppendEntriesRequest;
 using AppendEntriesResponse = ::raft_messages::AppendEntriesResponse;
 using InstallSnapshotRequest = ::raft_messages::InstallSnapshotRequest;
 using InstallSnapshotResponse = ::raft_messages::InstallSnapshotResponse;
-using HandleClientRequest = ::raft_messages::HandleClientRequest;
-using HandleClientResponse = ::raft_messages::HandleClientResponse;
 
     
 RaftServerContext::RaftServerContext(struct RaftNode * node){
@@ -95,27 +113,35 @@ Status RaftMessagesServiceImpl::InstallSnapshot(ServerContext* context,
     }
 }
 
-
-////////////////ctx 
-////该函数是否需要加锁，思考rpc服务器同时收到几个请求的处理流程，同时处理，还是一个一个处理？
-Status RaftMessagesServiceImpl::HandleClient(ServerContext* context,
-        const raft_messages::HandleClientRequest* request,
-        raft_messages::HandleClientResponse* response) 
-{
-    #if !defined(_HIDE_HEARTBEAT_NOTICE) && !defined(_HIDE_GRPC_NOTICE)
-    debug("GRPC: Receive HandleClient from Peer %s\n", context->peer().c_str());
-    #endif
-    if(!raft_node){
-        return Status::OK;
-    }
-    int response0 = raft_node->on_handle_client_request(response,*request);
-    if(response0 == 0)
-        return Status::OK;
-    else
-        return Status(grpc::StatusCode::UNAVAILABLE,"Peer is not ready for this request.");
+RaftStreamServerContext::RaftStreamServerContext(struct RaftNode * node){
+    service = std::make_shared<RaftMessagesStreamServiceImpl>(node);
+    // service = new RaftMessagesStreamServiceImpl(node);
+#if !defined(_HIDE_GRPC_NOTICE)
+    debug("GRPC: Listen to %s\n", node->name.c_str());
+#endif
+    builder = new ServerBuilder();
+    builder->AddListeningPort(node->name, grpc::InsecureServerCredentials());
+    builder->RegisterService(service.get());
+    // builder->RegisterService(service);
+    server = std::move(std::unique_ptr<Server>{builder->BuildAndStart()});
 }
-
-
+RaftStreamServerContext::~RaftStreamServerContext(){
+    service->stop.store(true);
+    wait_thread = std::thread([service=service, server=server](){
+        server->Wait();
+    });
+    debug("Wait shutdown\n");
+    // https://grpc.io/grpc/cpp/classgrpc_1_1_server_interface.html#a6a1d337270116c95f387e0abf01f6c6c
+    // In the case of the sync API, if the RPC function for a streaming call has already been started and takes a week to complete, 
+    // the RPC function won't be forcefully terminated
+    // server->Shutdown(std::chrono::system_clock::now() + std::chrono::milliseconds(100));
+    // server->Shutdown();
+    debug("Wait Join/Detach\n");
+    // NOTICE We can't join here
+    wait_thread.detach();
+    delete builder;
+    debug("wait_thread Joined/Detached\n");
+}
 
 
 Status RaftMessagesStreamServiceImpl::RequestVote(ServerContext* context, ::grpc::ServerReaderWriter< ::raft_messages::RequestVoteResponse, RequestVoteRequest>* stream){
@@ -219,32 +245,3 @@ Status RaftMessagesStreamServiceImpl::InstallSnapshot(ServerContext* context, ::
     return Status::OK;
 }
 
-RaftStreamServerContext::RaftStreamServerContext(struct RaftNode * node){
-    service = std::make_shared<RaftMessagesStreamServiceImpl>(node);
-    // service = new RaftMessagesStreamServiceImpl(node);
-#if !defined(_HIDE_GRPC_NOTICE)
-    debug("GRPC: Listen to %s\n", node->name.c_str());
-#endif
-    builder = new ServerBuilder();
-    builder->AddListeningPort(node->name, grpc::InsecureServerCredentials());
-    builder->RegisterService(service.get());
-    // builder->RegisterService(service);
-    server = std::move(std::unique_ptr<Server>{builder->BuildAndStart()});
-}
-RaftStreamServerContext::~RaftStreamServerContext(){
-    service->stop.store(true);
-    wait_thread = std::thread([service=service, server=server](){
-        server->Wait();
-    });
-    debug("Wait shutdown\n");
-    // https://grpc.io/grpc/cpp/classgrpc_1_1_server_interface.html#a6a1d337270116c95f387e0abf01f6c6c
-    // In the case of the sync API, if the RPC function for a streaming call has already been started and takes a week to complete, 
-    // the RPC function won't be forcefully terminated
-    // server->Shutdown(std::chrono::system_clock::now() + std::chrono::milliseconds(100));
-    // server->Shutdown();
-    debug("Wait Join/Detach\n");
-    // NOTICE We can't join here
-    wait_thread.detach();
-    delete builder;
-    debug("wait_thread Joined/Detached\n");
-}

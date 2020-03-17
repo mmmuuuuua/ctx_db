@@ -5,11 +5,9 @@
 #include "ShardkvInnerRpcServer.h"
 
 
-ShardkvServer::ShardkvServer(const std::string& nodeAddr_,const std::string& kvRpcAddr_,const std::string& innerRpcAddr_,int id,
-							std::shared_ptr<ShardmasterClient> innerShardmasterClient_)
+ShardkvServer::ShardkvServer(const std::string& nodeAddr_,const std::string& kvRpcAddr_,const std::string& innerRpcAddr_,int id)
 							:nodeAddr(nodeAddr_),kvRpcAddr(kvRpcAddr_),innerRpcAddr(innerRpcAddr_),gid(id)
 {
-	printf("start constructing a new ShardkvServer,the gid is %d\n",gid);
 	tobe_destructed = false;
 	
 	////新增
@@ -19,10 +17,9 @@ ShardkvServer::ShardkvServer(const std::string& nodeAddr_,const std::string& kvR
 	config.num = 0;
 	config.shards = std::vector<int>(10,0);
 	
-	
 	//mck = new ShardmasterClient();
-	//mck = std::make_shared<ShardmasterClient>();
-	mck = innerShardmasterClient_;
+	mck = std::make_shared<ShardmasterClient>();
+	
 	node = new RaftNode(nodeAddr,this,NUFT_SHARDKV);
 	
 	shardkvRpcServer = new ShardkvRpcServer(this,kvRpcAddr);
@@ -70,8 +67,6 @@ ShardkvServer::ShardkvServer(const std::string& nodeAddr_,const std::string& kvR
 	node->set_callback(NUFT_CB_ON_NEWCONFIG_APPLY, std::bind(&ShardkvServer::onNewConfigApply,this,std::placeholders::_1,std::placeholders::_2));
 	node->set_callback(NUFT_CB_ON_SHARDMIGRATIONREPLY_APPLY, std::bind(&ShardkvServer::onShardMigrationReplyApply,this,std::placeholders::_1,std::placeholders::_2));
 	node->set_callback(NUFT_CB_ON_SHARDCLEANUP_APPLY, std::bind(&ShardkvServer::onShardCleanupApply,this,std::placeholders::_1,std::placeholders::_2));
-
-	printf("construct end,the gid is %d\n",gid);
 }
 
 ShardkvServer::~ShardkvServer()
@@ -84,26 +79,20 @@ ShardkvServer::~ShardkvServer()
 		shardkvServerMu.unlock();
 	}
 	{	
-		printf("start wait pollThread join,the gid is %d\n",gid);
 		pollThread.join();
-		printf("start wait pullThread join,the gid is %d\n",gid);
 		pullThread.join();
-		printf("start wait cleanThread join,the gid is %d\n",gid);
 		cleanThread.join();
 	}
 	{
 		//delete mck;
 		//mck = nullptr;
-		printf("start delete raft node,the gid is %d\n",gid);
+		
 		delete node;
 		node = nullptr;
-		printf("start delete shardkvRpcServer,the gid is %d\n",gid);
 		delete shardkvRpcServer;
 		shardkvRpcServer = nullptr;
-		printf("start delete shardkvInnerRpcServer,the gid is %d\n",gid);
 		delete shardkvInnerRpcServer;
 		shardkvInnerRpcServer = nullptr;
-		printf("~ShardkvServer end\n");
 	}
 }
 
@@ -163,43 +152,16 @@ void ShardkvServer::ApplyNewConf(Config newConfig)
 void ShardkvServer::poll()
 {
 	shardkvServerMu.lock();
-	printf("try query,try get new config,the gid is %d\n",gid);
 	if(node->state != RaftNode::NodeState::Leader)
 	{
 		shardkvServerMu.unlock();
 		return;
 	}
-	printf("start query,try get new config,the gid is %d\n",gid);
 	int nextConfigNum = config.num + 1;
 	shardkvServerMu.unlock();
 	Config newConfig = mck->Query(nextConfigNum);
 	if(newConfig.num==nextConfigNum){
-		IndexID index = node->do_log(std::string("newconfig"),newConfig); 
-		shardkvServerMu.lock();
-		std::unique_lock<std::mutex> lk(map_[index].first); ///这里用map的机制对std::pair<std::mutex,std::condition_variable>默认初始化，
-                                                        ///应该选择更好的初始化机制？
-		shardkvServerMu.unlock();
-		//std::unique_lock<std::mutex> lk(raft_node->mut_);
-
-		if(map_[(int)(index)].second.wait_for(lk,std::chrono::duration<int>{60})== std::cv_status::timeout)
-		//if((raft_node->cond_).wait_for(lk,std::chrono::duration<int>{60})== std::cv_status::timeout)
-		{
-			lk.unlock();
-			//response.set_flag(FAIL);
-			return;
-		}
-		else{
-			lk.unlock();
-			//if(flag==false)
-			//	response.set_flag(FAIL);
-			//else
-			//{
-			//	response.set_value(getValue.front());
-			//	getValue.pop();
-			//	response.set_flag(SUCCESS);
-			//}
-			return;
-		}
+		node->do_log(std::string("newconfig"),newConfig); 
 	}
 }
 
@@ -211,7 +173,7 @@ void ShardkvServer::pull()
 		shardkvServerMu.unlock();
 		return;
 	}
-	printf("start waitingShards,number of waitingShards shards is %d,the gid is %d\n",waitingShards.size(),gid);
+	
 	std::vector<std::thread> pullThreads(waitingShards.size());
 	int cnt=0;
 	for(auto iter=waitingShards.begin();iter!=waitingShards.end();iter++)
@@ -238,13 +200,13 @@ void ShardkvServer::doPull(int shard,Config oldConfig)
 	
 	for(int i=0;i<servers.size();i++)
 	{
-		shardkvInnerRpcClients[kvToInnerAddr[servers[i]]]->ShardMigration(request,response);
+		shardkvInnerRpcClients[servers[i]]->ShardMigration(request,response);
 		//还需要更严格的差错处理机制
 		if(response.flag()==SUCCESS)  //SUCCESS待定
 		{
-			
-			IndexID index = node->do_log(std::string("shardmigration"),response);  
 			shardkvServerMu.lock();
+			IndexID index = node->do_log(std::string("shardmigration"),response);  
+
 			std::unique_lock<std::mutex> lk(map_[index].first); 
 			shardkvServerMu.unlock();
 
@@ -255,7 +217,7 @@ void ShardkvServer::doPull(int shard,Config oldConfig)
 				return;
 			}
 			else{
-				lk.unlock();
+				//lk.unlock();
 				//if(flag==false)
 				//	response.set_flag(FAIL);
 				//else
@@ -276,7 +238,7 @@ void ShardkvServer::clean()
 		shardkvServerMu.unlock();
 		return;
 	}
-	printf("start cleaning,number of cleaning shards is %d\n",cleaningShards.size());
+	
 	std::vector<std::thread> cleanThreads(cleaningShards.size());
 	int cnt=0;
 	for(auto iter=cleaningShards.begin();iter!=cleaningShards.end();iter++)
@@ -307,10 +269,9 @@ void ShardkvServer::doClean(int shard,Config config)
 	request.set_shard(shard);
 	request.set_confignum(configNum);
 	
-	
 	for(int i=0;i<servers.size();i++)
 	{
-		shardkvInnerRpcClients[kvToInnerAddr[servers[i]]]->ShardCleanup(request,response);
+		shardkvInnerRpcClients[servers[i]]->ShardCleanup(request,response);
 
 		if(response.flag()==SUCCESS)  //SUCCESS待定
 		{
@@ -319,6 +280,7 @@ void ShardkvServer::doClean(int shard,Config config)
 			if(cleaningShards[configNum].empty())
 			{
 				cleaningShards.erase(configNum);
+				//输出日志
 			}
 			shardkvServerMu.unlock();
 			return;
@@ -554,7 +516,6 @@ NuftResult ShardkvServer::onShardMigrationReplyApply(NUFT_CB_TYPE type,NuftCallb
 	ShardMigrationReplyApplyMessage * applymsg = (ShardMigrationReplyApplyMessage *)(arg->p1);
 	if(applymsg->configNum == config.num-1)   //这句话的意义？
 	{
-		printf("shardmigration success,waitingShards %d has been shardmigrated,then erase\n",applymsg->shard);
 		waitingShards.erase(applymsg->shard);
 		if(ownShards.find(applymsg->shard)==ownShards.end())
 		{
@@ -594,12 +555,6 @@ NuftResult ShardkvServer::onNewConfigApply(NUFT_CB_TYPE type,NuftCallbackArg * a
 	std::lock_guard<std::mutex> guard((monitor_mut));
 	NewConfigApplyMessage * applymsg = (NewConfigApplyMessage *)(arg->p1);
 	ApplyNewConf(applymsg->newConfig);
-	printf("newConfig is applied,the shards to gids is as follows:\n");
-	for(int i=0;i<(applymsg->newConfig).shards.size();i++)
-	{
-		printf("%d ",(applymsg->newConfig).shards[i]);
-	}
-	printf("\n");
 	flag = true;
 	return NUFT_OK;
 }

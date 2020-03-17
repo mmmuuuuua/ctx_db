@@ -1,5 +1,4 @@
-#ifndef KV_DATABASE_H__
-#define KV_DATABASE_H__
+#pragma once
 
 #include <cstdio>
 #include <string>
@@ -9,15 +8,11 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/options.h"
 
-
-//using namespace rocksdb;
-class RaftNode;
-
 class kv_database
 {
     public:
         kv_database();
-        kv_database(std::string & dbDir,RaftNode * raftnode);
+        kv_database(std::string & dbDir);
         ~kv_database()
         {
             delete db;
@@ -27,7 +22,4 @@ class kv_database
     private:
         std::string dbDir;
         rocksdb::DB * db;
-        RaftNode * raftnode_;
 };
-
-#endif

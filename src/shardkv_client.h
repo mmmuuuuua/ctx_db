@@ -4,25 +4,24 @@
 #include <sys/time.h>
 #include <random>  //https://blog.csdn.net/dongshixian/article/details/46496787
 #include "shardmaster_config.h"
-#include "shardkv_rpc_client.h"
 
 struct ShardkvClient
 {
-	ShardkvClient(std::shared_ptr<ShardmasterClient> mck_);
+	ShardkvClient();
 	~ShardkvClient();
 	
 	//API
-	void Get(const std::string& key,std::string& value);
-	void Put(const std::string& key,const std::string& value)
+	void Get(std::string& key,std::string& value);
+	void Put(std::string& key,std::string& value)
 	{
 		PutAppend(key,value,std::string("put"));
 	}
-	void Append(const std::string& key,const std::string& value)
+	void Append(std::string& key,std::string& value)
 	{
 		PutAppend(key,value,std::string("append"));
 	}
 	
-	void PutAppend(const std::string& key,const std::string& value,const std::string& op);
+	void PutAppend(std::string& key,std::string& value,std::string& op);
 
 	//辅助函数
     long long GetCurrentTime()      //获得unix时间戳，精确到毫秒
@@ -49,9 +48,7 @@ struct ShardkvClient
 	{
 		currentAddr = addr;
 	}
-	//ShardmasterClient* mck;
-	std::shared_ptr<ShardmasterClient> mck;
-
+	ShardmasterClient* mck;
 	std::vector<std::string> addrs;
     std::unordered_map<std::string,std::shared_ptr<ShardkvRpcClient>> shardkvRpcClients;
     int currentIndex;////当前尝试发送的node
@@ -64,20 +61,20 @@ struct ShardkvClient
 
 };
 
-ShardkvClient::ShardkvClient(std::shared_ptr<ShardmasterClient> mck_)
+ShardkvClient::ShardkvClient()
 {
-	mck = mck_;
+	mck = new ShardmasterClient();
 	clientId = nrand();
 	lastRequestId = 0;
-	config = mck->Query(-1);
+	config = mck.Query(-1);
 }
 
 ShardkvClient::~ShardkvClient()
 {
-	//delete mck;
+	delete mck;
 }
 
-void ShardkvClient::Get(const std::string& key,std::string& value)
+void ShardkvClient::Get(std::string& key,std::string& value)
 {
 	while(1)
 	{
@@ -91,7 +88,7 @@ void ShardkvClient::Get(const std::string& key,std::string& value)
 		{
 			for(int i=0;i<config.groups[gid].size();i++)
 			{
-				shardkvRpcClients[config.groups[gid][i]]->Get(request,response);
+				ShardkvRpcClients[config.groups[gid][i]]->Get(request,response);
 				int flag = response.flag();
 				if(flag==AGAIN)
 				{
@@ -110,20 +107,11 @@ void ShardkvClient::Get(const std::string& key,std::string& value)
 			}
 		}
 		usleep(100000);
-		printf("get failed,need new config\n");
-		Config queryConfig = mck->Query(config.num+1);
-		if(config.num!=queryConfig.num)
-		{
-			printf("get operation apply new config,the shards to gids is as follows\n");
-			for(int i=0;i<queryConfig.shards.size();i++)
-				printf("%d ",queryConfig.shards[i]);
-			printf("\n");
-			config = queryConfig;
-		}
+		config = mck.Query(config.num+1);
 	}
 }
 
-void ShardkvClient::PutAppend(const std::string& key,const std::string& value,const std::string& op)
+void ShardkvClient::PutAppend(std::string& key,std::string& value,std::string& op)
 {
 	shardkv_messages::PutAppendRequest request;
     shardkv_messages::PutAppendResponse response;
@@ -147,7 +135,7 @@ void ShardkvClient::PutAppend(const std::string& key,const std::string& value,co
 		{
 			for(int i=0;i<config.groups[gid].size();i++)
 			{
-				shardkvRpcClients[config.groups[gid][i]]->PutAppend(request,response);
+				ShardkvRpcClients[config.groups[gid][i]]->Get(request,response);
 				int flag = response.flag();
 				if(flag==AGAIN)
 				{
@@ -165,16 +153,7 @@ void ShardkvClient::PutAppend(const std::string& key,const std::string& value,co
 			}
 		}
 		usleep(100000);
-		printf("putappend failed,need new config\n");
-		Config queryConfig = mck->Query(config.num+1);
-		if(config.num!=queryConfig.num)
-		{
-			printf("putappend operation apply new config,the shards to gids is as follows\n");
-			for(int i=0;i<queryConfig.shards.size();i++)
-				printf("%d ",queryConfig.shards[i]);
-			printf("\n");
-			config = queryConfig;
-		}
+		config = mck.Query(config.num+1);
 	}
 }
 

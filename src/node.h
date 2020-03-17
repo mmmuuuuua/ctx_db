@@ -1,3 +1,23 @@
+/*************************************************************************
+*  Nuft -- A C++17 Raft consensus algorithm library
+*  Copyright (C) 2018  Calvin Neo 
+*  Email: calvinneo@calvinneo.com;calvinneo1995@gmail.com
+*  Github: https://github.com/CalvinNeo/Nuft/
+*  
+*  This program is free software: you can redistribute it and/or modify
+*  it under the terms of the GNU General Public License as published by
+*  the Free Software Foundation, either version 3 of the License, or
+*  (at your option) any later version.
+*  
+*  This program is distributed in the hope that it will be useful,
+*  but WITHOUT ANY WARRANTY; without even the implied warranty of
+*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+*  GNU General Public License for more details.
+*  
+*  You should have received a copy of the GNU General Public License
+*  along with this program.  If not, see <https://www.gnu.org/licenses/>.
+**************************************************************************/
+
 #pragma once
 
 #include <cstring>
@@ -9,131 +29,29 @@
 #include <map>
 #include <functional>
 #include <algorithm>
-#include "utils.h"
-#include "grpc_utils.h"
-#include "settings.h"
+
+#include "kv_server.h"
+#include "shardmaster_server.h"
+#include "shardkv_server.h"
+
 #include <tuple>
 #include <utility>
 
-#include "kv_database.h"
 
-typedef std::string NodeName;
-typedef int64_t IndexID;
-typedef uint64_t TermID;
 
-static constexpr IndexID default_index_cursor = -1; // When no log, index is -1
-static constexpr TermID default_term_cursor = 0; // When starting, term is 0
-static constexpr uint64_t default_timeout_interval_lowerbound = 150 + 300; // 1000;
-static constexpr uint64_t default_timeout_interval_upperbound = 300 + 300; // 1800;
-static constexpr uint64_t default_heartbeat_interval = 30;
-// the Raft paper: Each candidate
-// restarts its randomized election timeout at the start of an
-// election, and it waits for that timeout to elapse before
-// starting the next election; 
-// This implementation does not conform to the standard.
-static constexpr uint64_t default_election_fail_timeout_interval = 550; // 3000; 
-#define vote_for_none ""
-
-#define GUARD std::lock_guard<std::mutex> guard((mut));
-#if defined(USE_GRPC_ASYNC)
-// Use Async gRPC model
-typedef RaftMessagesClientAsync RaftMessagesClient;
-#else
-// Use Sync gRPC model
-#if defined(USE_GRPC_STREAM)
-typedef RaftMessagesStreamClientSync RaftMessagesClient;
-#else
-typedef RaftMessagesClientSync RaftMessagesClient;
-#endif
-#define GRPC_SYNC_CONCUR_LEVEL 8 
-#endif
-
-#define SEQ_START 1
-#define USE_MORE_REMOVE
-
-struct Persister{
-    struct RaftNode * node = nullptr;
-    void Dump(std::lock_guard<std::mutex> &, bool backup_conf = false);
-    void Load(std::lock_guard<std::mutex> &);
-};
-
-struct NodePeer {
-    NodeName name;
-    bool voted_for_me = false;
-    // Index of next log to copy
-    IndexID next_index = default_index_cursor + 1;
-    // Index of logs already copied
-    IndexID match_index = default_index_cursor;
-    // Use `RaftMessagesClient` to send RPC message to peer.
-    std::shared_ptr<RaftMessagesClient> raft_message_client;
-    // Debug usage
-    bool receive_enabled = true;
-    bool send_enabled = true;
-    // According to the Raft Paper Chapter 6 Issue 1,
-    // Newly added nodes is in staging mode, and thet have no voting rights,
-    // Until they are sync-ed.
-    bool voting_rights = true;
-    // seq nr for next rpc call
-    uint64_t seq = SEQ_START;
-};
-
-enum NUFT_RESULT{
-    NUFT_OK = 0,
-    NUFT_FAIL = 1,
-    NUFT_RETRY = 2,
-    NUFT_NOT_LEADER = 3,
-    NUFT_RESULT_SIZE,
-};
-enum NUFT_CB_TYPE {
-    NUFT_CB_ELECTION_START,
-    NUFT_CB_ELECTION_END,
-    NUFT_CB_STATE_CHANGE,
-    NUFT_CB_ON_APPLY,
-    NUFT_CB_CONF_START,
-    NUFT_CB_CONF_END,
-    NUFT_CB_ON_REPLICATE,
-    NUFT_CB_ON_NEW_ENTRY,
-    NUFT_CB_SIZE,
-};
-enum NUFT_CMD_TYPE {
-    NUFT_CMD_NORMAL = 0,
-    NUFT_CMD_TRANS = 1,
-    NUFT_CMD_SNAPSHOT = 2,
-    NUFT_CMD_TRANS_NEW = 3,
-    NUFT_CMD_SIZE,
-};
-struct NuftCallbackArg{
-    struct RaftNode * node;
-    std::lock_guard<std::mutex> * lk = nullptr;
-    int a1 = 0;
-    int a2 = 0;
-    void * p1 = nullptr;
-};
-typedef int NuftResult;
-// typedef NuftResult NuftCallbackFunc(NUFT_CB_TYPE, NuftCallbackArg *);
-// typedef std::function<NuftResult(NUFT_CB_TYPE, NuftCallbackArg *)> NuftCallbackFunc;
-typedef std::function<NuftResult(NUFT_CB_TYPE, NuftCallbackArg *)> NuftCallbackFunc;
-
-struct ApplyMessage{
-    IndexID index = default_index_cursor;
-    TermID term = default_term_cursor;
-    std::string name;
-    bool from_snapshot = false;
-    std::string data;
-};
 
 struct RaftNode {
-
     ///ctx
     enum GET_FLAG{
-    GET_SUCCESS=0,
-    GET_FAIL=1,
+        GET_SUCCESS=0,
+        GET_FAIL=1,
+        GET_AGAIN=2,
     };
 
     enum SET_FLAG{
-        SET_AGAIN=0,
+        SET_SUCCESS=0,
         SET_FAIL=1,
-        SET_SUCCESS=2,
+        SET_AGAIN=2,
     };
 
     enum NodeState {
@@ -551,8 +469,6 @@ struct RaftNode {
     int on_vote_request(raft_messages::RequestVoteResponse * response_ptr, const raft_messages::RequestVoteRequest & request);
     void on_vote_response(const raft_messages::RequestVoteResponse & response);
 
-    int on_handle_client_request(raft_messages::HandleClientResponse * response_ptr, const raft_messages::HandleClientRequest& request);
-
 
     template <typename R>
     bool handle_request_routine(std::lock_guard<std::mutex> & guard, const R & request){
@@ -622,10 +538,12 @@ struct RaftNode {
         GUARD
         return get_log(guard, index, l);
     }
+
     // Major
     NuftResult do_log(std::lock_guard<std::mutex> & guard, ::raft_messages::LogEntry entry, std::function<void(RaftNode*)> f, int command);
     NuftResult do_log(std::lock_guard<std::mutex> & guard, const std::string & log_string, std::function<void(RaftNode*)> f){
         ::raft_messages::LogEntry entry;
+        entry.set_cmd("normal");
         entry.set_data(log_string);
         return do_log(guard, entry, f, NUFT_CMD_NORMAL);
     }
@@ -660,7 +578,17 @@ struct RaftNode {
         GUARD
         return do_log(guard, log_string, [](RaftNode *){}, command);
     }
-    
+
+    NuftResult do_log(std::string cmd,const ::shardmaster_messages::JoinRequest& request);
+    NuftResult do_log(std::string cmd,const ::shardmaster_messages::LeaveRequest& request);
+    NuftResult do_log(std::string cmd,const ::shardmaster_messages::MoveRequest& request);
+    NuftResult do_log(std::string cmd,const ::shardmaster_messages::QueryRequest& request);
+    NuftResult do_log(std::string cmd,const ::shardkv_messages::GetRequest& request);
+    NuftResult do_log(std::string cmd,const ::shardkv_messages::PutAppendRequest& request);
+    NuftResult do_log(std::string cmd,const Config& newConfig);
+    NuftResult do_log(std::string cmd,const ::shardkvinner_messages::ShardMigrationResponse& response);
+    NuftResult do_log(std::string cmd,const ::shardkvinner_messages::ShardCleanupRequest& request);
+
     // API
     NuftResult update_configuration(const std::vector<std::string> & app, const std::vector<std::string> & rem);
     void update_configuration_joint(std::lock_guard<std::mutex> & guard);
@@ -690,15 +618,14 @@ struct RaftNode {
     bool valid_seq(uint64_t seq, bool initial);
 
 
-    //////
-    kv_database * db;
-    std::string dbDir;
-
-    int sequence_;//解决幂等性的序号
-    //std::mutex mut_;
-    //std::condition_variable cond_;//当需要复制的条目commit或者超时的时候用于唤醒grpc服务端的调用
-    std::map<int,std::pair<std::mutex,std::condition_variable>> map_;
-
+	///根据情况选择使用下面哪一个指针。
+    NUFT_SERVER_TYPE type_;
+    void* server_; //可能是下述三种情况中的一种
+	//KvServer* kv_server; 
+	//ShardmasterServer* shardmasterServer_;  
+	//ShardkvServer* shardkvServer_;
+	
+    RaftNode(const std::string & addr,void* server,NUFT_SERVER_TYPE type);
     RaftNode(const std::string & addr);
     RaftNode(const RaftNode &) = delete;
     ~RaftNode();

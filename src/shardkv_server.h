@@ -13,16 +13,15 @@
 
 
 
-static constexpr uint64_t PollInterval = 400; 
-static constexpr uint64_t PullInterval = 100; 
-static constexpr uint64_t CleanInterval = 100;
+static constexpr uint64_t PollInterval = 70; 
+static constexpr uint64_t PullInterval = 50; 
+static constexpr uint64_t CleanInterval = 50;
 
 
 
 struct ShardkvServer
 {
-	ShardkvServer(const std::string& nodeAddr_,const std::string& kvRpcAddr_,const std::string& innerRpcAddr_,int id,
-				std::shared_ptr<ShardmasterClient> innerShardmasterClient_);
+	ShardkvServer(const std::string& nodeAddr_,const std::string& kvRpcAddr_,const std::string& innerRpcAddr_,int id);
 	~ShardkvServer();
 
 	//基本
@@ -32,7 +31,7 @@ struct ShardkvServer
 	struct RaftNode* node; 
 	int gid;
 	Config config;   //指针还是值？
-	bool tobe_paused;
+
 	//rpc
 	//ShardmasterClient* mck;
 	//考虑换成智能指针
@@ -55,7 +54,7 @@ struct ShardkvServer
 	//存储
 	std::unordered_map<std::string,std::string> data;
 	std::unordered_map<int,std::string> cache;
-	e
+	
 	//rpc回调函数
 	int onGet(shardkv_messages::GetResponse* response_ptr,const shardkv_messages::GetRequest& request);
 	int onPutAppend(shardkv_messages::PutAppendResponse* response_ptr,const shardkv_messages::PutAppendRequest& request);
@@ -93,9 +92,6 @@ struct ShardkvServer
 	std::string kvRpcAddr;
 	std::string innerRpcAddr;
 	
-	//kvRpcAddr->innerRpcAddr
-	std::unordered_map<std::string,std::string> kvToInnerAddr;
-
 	//添加shardkvInnerRpcClients，mck等客户端通信服务
 	void AddShardkvInnerRpcClients(std::string Addr)
 	{

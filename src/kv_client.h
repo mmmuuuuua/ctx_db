@@ -8,11 +8,12 @@
 #include <grpcpp/grpcpp.h>
 #include "grpc/raft_messages.grpc.pb.h"
 #include "grpc/raft_messages.pb.h"
-
+#include "grpc/client_messages.grpc.pb.h"
+#include "grpc/client_messages.pb.h"
 
 struct KvClientSync : std::enable_shared_from_this<KvClientSync>{
-    using HandleClientRequest = ::raft_messages::HandleClientRequest;
-    using HandleClientResponse = ::raft_messages::HandleClientResponse;
+    using HandleClientRequest = ::client_messages::HandleClientRequest;
+    using HandleClientResponse = ::client_messages::HandleClientResponse;
 
     Nuke::ThreadExecutor * task_queue = nullptr;
     std::string addr_;
@@ -29,7 +30,7 @@ struct KvClientSync : std::enable_shared_from_this<KvClientSync>{
         //raft_node = nullptr;
     }
 private:
-    std::unique_ptr<raft_messages::RaftMessages::Stub> stub;
+    std::unique_ptr<client_messages::ClientMessages::Stub> stub;
 };
 
 bool KvClientSync::AsyncHandleClient(const HandleClientRequest& request,HandleClientResponse& response)
@@ -74,7 +75,7 @@ bool KvClientSync::SyncHandleClient(const HandleClientRequest& request,HandleCli
 
 KvClientSync::KvClientSync(const char * addr) : addr_(addr) {
     std::shared_ptr<Channel> channel = grpc::CreateChannel(addr_, grpc::InsecureChannelCredentials());
-    stub = raft_messages::RaftMessages::NewStub(channel);
+    stub = client_messages::ClientMessages::NewStub(channel);
 }
 
 KvClientSync::KvClientSync(const std::string & addr) : KvClientSync(addr.c_str()) {
@@ -85,19 +86,28 @@ KvClientSync::KvClientSync(const std::string & addr) : KvClientSync(addr.c_str()
 class KvClient
 {
     public:
+        /*
         enum GET_FLAG{
             GET_SUCCESS=0,
             GET_FAIL=1,
+            GET_AGAIN=2,
         };
 
         enum SET_FLAG{
-            SET_AGAIN=0,
+            SET_SUCCESS=0,
             SET_FAIL=1,
-            SET_SUCCESS=2,
+            SET_AGAIN=2,
+        };
+        */
+        enum FLAG{
+            SUCCESS=0,
+            FAIL=1,
+            AGAIN=2,
         };
         //KvClient(){}
         void AddKvNode(std::string kvNodeAddr)
         {
+            //kvNodeAddr[kvNodeAddr.size()-3] = '8';//注释之前报错：assignment of read-only location，待解决
             addrs.push_back(kvNodeAddr);
             kvClients[kvNodeAddr]=std::make_shared<KvClientSync>(kvNodeAddr);
             if(currentAddr.empty())
@@ -105,35 +115,43 @@ class KvClient
         }
         void SetCurrentAddr(const std::string& addr)
         {
+            //addr[addr.size()-3]='8'; //注释之前报错：assignment of read-only location，待解决
             currentAddr = addr;
         }
         bool Get(const std::string& key,std::string& value);
         bool Set(const std::string& key,const std::string& value);
     private:
         std::vector<std::string> addrs;
-        std::map<std::string,std::shared_ptr<KvClientSync>> kvClients;
+        std::unordered_map<std::string,std::shared_ptr<KvClientSync>> kvClients;
         int currentIndex;////当前尝试发送的node
         std::string currentAddr;
 };
 
 bool KvClient::Get(const std::string& key,std::string& value)
 {
-    raft_messages::HandleClientRequest request;
-    raft_messages::HandleClientResponse response;
-
-    request.set_key(key);
-    request.set_value(value);
-    request.set_request_type("GET");
-    kvClients[currentAddr]->SyncHandleClient(request,response);
-    int flag = response.flag();
-    if(flag==GET_FAIL)
+    int x=10;
+    while(x--)
     {
-        return false;
+        client_messages::HandleClientRequest request;
+        client_messages::HandleClientResponse response;
+        request.set_key(key);
+        request.set_value(value);
+        request.set_request_type("GET");
+        kvClients[currentAddr]->SyncHandleClient(request,response);
+        int flag = response.flag();
+        if(flag==AGAIN)
+        {
+            currentAddr = response.leader_name();
+        }
+        else if(flag==FAIL)
+        {
+            return false;
+        }
+        else if(flag==SUCCESS)
+        {
+            return true;
+        }
     }
-    else if(flag==GET_SUCCESS)
-    {
-        return true;
-    }  
 }
 
 bool KvClient::Set(const std::string& key,const std::string& value)
@@ -141,22 +159,22 @@ bool KvClient::Set(const std::string& key,const std::string& value)
     int x = 10;////fix me 
     while(x--)
     {
-        raft_messages::HandleClientRequest request;
-        raft_messages::HandleClientResponse response;
+        client_messages::HandleClientRequest request;
+        client_messages::HandleClientResponse response;
         request.set_key(key);
         request.set_value(value);
         request.set_request_type("SET");
         kvClients[currentAddr]->SyncHandleClient(request,response);
         int flag = response.flag();
-        if(flag==SET_AGAIN)
+        if(flag==AGAIN)
         {
             currentAddr = response.leader_name();
         }
-        else if(flag==SET_FAIL)
+        else if(flag==FAIL)
         {
             return false;
         }
-        else if(flag==SET_SUCCESS)
+        else if(flag==SUCCESS)
         {
             return true;
         }

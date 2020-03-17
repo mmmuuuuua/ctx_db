@@ -1,72 +1,44 @@
+#pragma once
 
 #include <vector>
-#include "test_utils.inc.h"
+#include <string>
+#include <memory>
+#include <mutex>
+#include <grpcpp/grpcpp.h>
+#include "grpc/client_messages.grpc.pb.h"
+#include "grpc/client_messages.pb.h"
+#include "kv_database.h"
 
 
-
-struct RaftMessagesServiceImpl : public raft_messages::RaftMessages::Service {
-    // `RaftMessagesServiceImpl` defines what we do when receiving a RPC call.
-    struct RaftNode * raft_node = nullptr;
-
-    RaftMessagesServiceImpl(struct RaftNode * _raft_node) : raft_node(_raft_node) {
-
-    }
-    ~RaftMessagesServiceImpl(){
-        raft_node = nullptr;
-    }
-    ////////ctx
-    Status HandleClient(ServerContext* context,const raft_messages::HandleClientRequest* request,
-                        raft_messages::HandleClientResponse* respanse) override;
-};
-
-
-struct RaftServerContext{
-    RaftMessagesServiceImpl * service;
-    std::unique_ptr<Server> server;
-    ServerBuilder * builder;
-    RaftServerContext(struct RaftNode * node);
-    std::thread wait_thread;
-    ~RaftServerContext();
-};
-
-
-RaftServerContext::RaftServerContext(struct RaftNode * node){
-    service = new RaftMessagesServiceImpl(node);
-#if !defined(_HIDE_GRPC_NOTICE)
-    debug("GRPC: Listen to %s\n", node->name.c_str());
-#endif
-    builder = new ServerBuilder();
-    builder->AddListeningPort(node->name, grpc::InsecureServerCredentials());
-    builder->RegisterService(service);
-    server = std::unique_ptr<Server>{builder->BuildAndStart()};
-}
-
-RaftServerContext::~RaftServerContext(){
-    debug("Wait shutdown\n");
-    server->Shutdown();
-    debug("Wait Join\n");
-    wait_thread = std::thread([&](){
-        server->Wait();
-    });
-    wait_thread.join();
-    debug("wait_thread Joined\n");
-    delete service;
-    delete builder;
-}
-
-class kv_server
+struct KvServer
 {
-    public:
-        kv_server();
-        ~kv_server();
-        RaftNode* new_leader(); //旧leader下线之后得到新的leader;
-    private:
-        std::vector<RaftNode*> nodes;
-        RaftNode* leader;
+    enum FLAG{
+        SUCCESS=0,
+        FAIL=1,
+        AGAIN=2,
+    };
+    KvServer(const std::string& addr);
+    ~KvServer();
+
+    int on_handle_client_request(client_messages::HandleClientResponse * response_ptr, const client_messages::HandleClientRequest & request);
+
+
+    struct RaftNode* node;
+    mutable std::mutex kv_mut; ///注意区分这个锁和RaftNode里面的锁
+
+    //#if defined(USE_GRPC_STREAM)
+    //RaftStreamServerContext * raft_message_server = nullptr;
+    //#else
+    struct ClientServerContext * client_message_server = nullptr;
+    kv_database * db;
+    std::string dbDir;
+
+    int sequence_;//解决幂等性的序号
+    //std::mutex mut_;
+    //std::condition_variable cond_;//当需要复制的条目commit或者超时的时候用于唤醒grpc服务端的调用
+    std::map<int,std::pair<std::mutex,std::condition_variable>> map_;
 };
 
-kv_server::kv_server()
-{
-    MakeRaftNodes(5);
-    WaitElection(nodes[0]);
-}
+
+
+
