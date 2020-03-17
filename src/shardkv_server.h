@@ -55,7 +55,7 @@ struct ShardkvServer
 	//存储
 	std::unordered_map<std::string,std::string> data;
 	std::unordered_map<int,std::string> cache;
-	
+	e
 	//rpc回调函数
 	int onGet(shardkv_messages::GetResponse* response_ptr,const shardkv_messages::GetRequest& request);
 	int onPutAppend(shardkv_messages::PutAppendResponse* response_ptr,const shardkv_messages::PutAppendRequest& request);
