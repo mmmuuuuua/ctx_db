@@ -1,3 +1,5 @@
+
+
 #include "node.h"
 
 void RaftNode::apply_conf(const Configuration & conf){

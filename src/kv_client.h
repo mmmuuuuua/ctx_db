@@ -4,6 +4,9 @@
 #include <vector>
 #include <string>
 #include <memory>
+#include <unistd.h>
+#include <sys/time.h>
+#include <random>  //https://blog.csdn.net/dongshixian/article/details/46496787
 
 #include <grpcpp/grpcpp.h>
 #include "grpc/raft_messages.grpc.pb.h"
@@ -105,31 +108,58 @@ class KvClient
             AGAIN=2,
         };
         //KvClient(){}
+        KvClient();
         void AddKvNode(std::string kvNodeAddr)
         {
-            //kvNodeAddr[kvNodeAddr.size()-3] = '8';//注释之前报错：assignment of read-only location，待解决
+            kvNodeAddr[kvNodeAddr.size()-3] = '8';
             addrs.push_back(kvNodeAddr);
             kvClients[kvNodeAddr]=std::make_shared<KvClientSync>(kvNodeAddr);
             if(currentAddr.empty())
                 currentAddr = kvNodeAddr;
         }
-        void SetCurrentAddr(const std::string& addr)
+        void SetCurrentAddr(std::string addr)
         {
-            //addr[addr.size()-3]='8'; //注释之前报错：assignment of read-only location，待解决
+            addr[addr.size()-3]='8';
             currentAddr = addr;
         }
         bool Get(const std::string& key,std::string& value);
         bool Set(const std::string& key,const std::string& value);
     private:
+
+        long long GetCurrentTime()      //获得unix时间戳，精确到毫秒
+        {    
+            struct timeval tv;    
+            gettimeofday(&tv,NULL);    //该函数在sys/time.h头文件中
+            return tv.tv_sec * 1000 + tv.tv_usec / 1000;    
+        } 
+
+        long long nrand()
+        {
+            std::independent_bits_engine<std::default_random_engine,32,unsigned long long> engine;
+            return engine();
+        }
+
         std::vector<std::string> addrs;
-        std::unordered_map<std::string,std::shared_ptr<KvClientSync>> kvClients;
+        std::map<std::string,std::shared_ptr<KvClientSync>> kvClients;
         int currentIndex;////当前尝试发送的node
         std::string currentAddr;
+
+        //解决幂等性
+        unsigned long long lastRequestId;
+	    unsigned long long clientId;
 };
+
+KvClient::KvClient()
+{
+    lastRequestId = 0;
+    clientId = nrand();
+}
+
+
 
 bool KvClient::Get(const std::string& key,std::string& value)
 {
-    int x=10;
+    int x=3;
     while(x--)
     {
         client_messages::HandleClientRequest request;
@@ -137,6 +167,7 @@ bool KvClient::Get(const std::string& key,std::string& value)
         request.set_key(key);
         request.set_value(value);
         request.set_request_type("GET");
+        request.set_clientid(clientId);
         kvClients[currentAddr]->SyncHandleClient(request,response);
         int flag = response.flag();
         if(flag==AGAIN)
@@ -156,14 +187,20 @@ bool KvClient::Get(const std::string& key,std::string& value)
 
 bool KvClient::Set(const std::string& key,const std::string& value)
 {
-    int x = 10;////fix me 
+    int x = 3;////fix me 
     while(x--)
     {
         client_messages::HandleClientRequest request;
         client_messages::HandleClientResponse response;
+
+        unsigned long long requestId = GetCurrentTime() - clientId;
+        request.set_expirerequestid(lastRequestId);
+        request.set_requestid(requestId);       
         request.set_key(key);
         request.set_value(value);
         request.set_request_type("SET");
+
+        lastRequestId = requestId;
         kvClients[currentAddr]->SyncHandleClient(request,response);
         int flag = response.flag();
         if(flag==AGAIN)
@@ -179,6 +216,9 @@ bool KvClient::Set(const std::string& key,const std::string& value)
             return true;
         }
     }
+
+    //currentIndex[]
+    //for(int i = 0; i < )
 }
 
 

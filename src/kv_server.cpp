@@ -1,11 +1,9 @@
-#pragma once
-
 #include "kv_rpc.h"
 #include "node.h"
 
 KvServer::KvServer(const std::string& addr)
 {   
-    node = new RaftNode(addr,this,NUFT_KV);
+    node = new RaftNode(addr,this);
     //#if defined(USE_GRPC_STREAM)
     //raft_message_server = new RaftStreamServerContext(this);
     //#else
@@ -62,15 +60,17 @@ int KvServer::on_handle_client_request(client_messages::HandleClientResponse * r
     {
         std::string key = request.key();
         std::string value = request.value();
+        long long expirerequestId = request.expirerequestid();
+        long long requestId = request.requestid();
 
-        IndexID index = node->do_log(key+"="+value);  ///这里不用加锁，因为do_log函数会使用RaftNode的锁进行加锁处理，
+        IndexID index = node->do_log(key+"="+value, expirerequestId, requestId);  ///这里不用加锁，因为do_log函数会使用RaftNode的锁进行加锁处理，
 
         std::unique_lock<std::mutex> lk(map_[index].first); ///这里用map的机制对std::pair<std::mutex,std::condition_variable>默认初始化，
                                                             ///应该选择更好的初始化机制？
         kv_mut.unlock();
         //std::unique_lock<std::mutex> lk(raft_node->mut_);
 
-        if(map_[(int)(index)].second.wait_for(lk,std::chrono::duration<int>{60})== std::cv_status::timeout)
+        if(map_[(int)(index)].second.wait_for(lk,std::chrono::duration<int>{5})== std::cv_status::timeout)
         //if((raft_node->cond_).wait_for(lk,std::chrono::duration<int>{60})== std::cv_status::timeout)
         {
             lk.unlock();

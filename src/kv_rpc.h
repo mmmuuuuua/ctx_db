@@ -65,7 +65,12 @@ ClientServerContext::ClientServerContext(KvServer * kvServer){
     debug("GRPC: Listen to %s\n", kvServer->node->name.c_str());
 #endif
     builder = new ServerBuilder();
-    builder->AddListeningPort(kvServer->node->name, grpc::InsecureServerCredentials());
+
+    int length = (kvServer->node->name).size();
+    std::string listenAddr = kvServer->node->name;
+    listenAddr[length-3]='8';
+
+    builder->AddListeningPort(listenAddr, grpc::InsecureServerCredentials());
     builder->RegisterService(service);
     server = std::unique_ptr<Server>{builder->BuildAndStart()};
 }

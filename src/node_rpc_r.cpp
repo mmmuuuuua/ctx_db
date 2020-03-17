@@ -19,6 +19,9 @@ void RaftNode::do_election(std::lock_guard<std::mutex> & guard) {
     elect_timeout_due = UINT64_MAX;
 
     for (auto & pp : peers) {
+
+        //debug_node("peers num:%d\n",peers.size());
+
         if(!pp.second->send_enabled) continue;
         raft_messages::RequestVoteRequest request;
         request.set_name(name);
