@@ -1,0 +1,22 @@
+syntax = "proto2";
+
+package client_messages;
+
+////////////////////// ctx
+message HandleClientRequest{
+    required string request_type=1;
+    required string key=2;
+    optional string value=3;
+    //required int64 sequence=4;
+}
+
+message HandleClientResponse{
+    //required string cmd=1;
+    required int32 flag=1;
+    optional string leader_name=2;  ///若操作请求的Node不是leader，则返回leader_name
+    optional string value=3;  ///get操作返回的value
+}
+
+service ClientMessages {
+    rpc HandleClient(HandleClientRequest) returns (HandleClientResponse) {}
+}
